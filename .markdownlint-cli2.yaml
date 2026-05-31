@@ -1,0 +1,28 @@
+# Relaxed markdownlint config. The hygiene baseline (trailing whitespace, final
+# newline, emphasis/code spacing, heading levels, ...) stays ON and GATES; the
+# cosmetic rules this repo intentionally violates are OFF, so the styled docs are
+# green without reformatting them. Tighten by re-enabling a rule + fixing the docs.
+globs:
+  - "**/*.md"
+ignores:
+  - ".mdHumanViewer/**"
+  - "docs/plans/**"
+  - "**/fragments/**"
+  - "node_modules/**"
+config:
+  default: true
+  MD013: false   # line length — README/SKILL/agent frontmatter use long lines on purpose
+  MD033: false   # inline HTML — centered hero <div>, <img> badges, <picture>
+  MD041: false   # first-line heading — README opens with a centered <div>, not "#"
+  MD024:
+    siblings_only: true   # CHANGELOG repeats Added/Changed headings across versions
+  MD029:
+    style: one_or_ordered
+  MD046: false   # agent docs mix fenced and indented code blocks
+  MD036: false   # deliberate bold lead-ins
+  MD034: false   # bare URLs appear in CHANGELOG / links
+  MD060: false   # table column style — pedantic pipe spacing (new rule, 40 hits)
+  MD031: false   # blanks around fences — the docs are intentionally dense (22 hits)
+  MD032: false   # blanks around lists — same (3 hits)
+  MD040: false   # fenced-code-language — not every snippet has a language tag (10 hits)
+  MD004: false   # unordered-list style — mixed bullet chars across docs (4 hits)

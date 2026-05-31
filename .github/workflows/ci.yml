@@ -1,0 +1,98 @@
+name: ci
+
+# Three parallel jobs:
+#   guard — privacy + rename tripwires (pure git-grep; fast; no Python)
+#   lint  — ruff (report-only for now), actionlint, manifest JSON-schema validation
+#   test  — the stdlib unittest suite across Python 3.9-3.14
+# No runtime dependencies: lint tools run via pipx, preinstalled on the GitHub-hosted
+# ubuntu runners. Third-party actions are pinned to a release SHA (comment = tag) and
+# kept current by .github/dependabot.yml.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Least privilege: this pipeline only reads the repository.
+permissions:
+  contents: read
+
+# Cancel superseded runs on the same ref (the suite is idempotent — nothing is lost).
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  guard:
+    name: guards (privacy + rename)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+      - name: Forbidden-token + rename tripwires
+        run: bash .github/scripts/guard.sh
+
+  lint:
+    name: lint (ruff - actionlint - manifests)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+
+      # REPORT-ONLY: surfaces annotations without failing the build. After the
+      # one-time cleanup (62 findings, 28 autofixable), delete continue-on-error
+      # to gate. Rules live in ruff.toml (target = py39).
+      - name: ruff (report-only)
+        continue-on-error: true
+        run: pipx run --spec "ruff==0.15.15" ruff check --output-format=github
+
+      - name: actionlint
+        run: |
+          curl -fsSL -o download-actionlint.bash \
+            https://raw.githubusercontent.com/rhysd/actionlint/v1.7.12/scripts/download-actionlint.bash
+          bash download-actionlint.bash 1.7.12
+          ./actionlint -color
+
+      - name: manifests parse (always-safe)
+        run: |
+          for f in .claude-plugin/plugin.json .claude-plugin/marketplace.json; do
+            jq empty "$f"
+          done
+
+      - name: manifests match schemastore schemas
+        run: |
+          pipx run --spec "check-jsonschema==0.37.2" check-jsonschema \
+            --schemafile https://json.schemastore.org/claude-code-plugin-manifest.json \
+            .claude-plugin/plugin.json
+          pipx run --spec "check-jsonschema==0.37.2" check-jsonschema \
+            --schemafile https://json.schemastore.org/claude-code-marketplace.json \
+            .claude-plugin/marketplace.json
+
+      - name: markdownlint (relaxed config; gates)
+        run: npx --yes markdownlint-cli2@0.22.1
+
+      - name: typos (gates)
+        uses: crate-ci/typos@f8a58b6b53f2279f71eb605f03a4ae4d10608f45  # v1.47.0
+
+      - name: links (lychee; report-only — external links can be flaky)
+        uses: lycheeverse/lychee-action@8646ba30535128ac92d33dfc9133794bfdd9b411  # v2.8.0
+        with:
+          args: "--no-progress --max-concurrency 4 './**/*.md'"
+          fail: false
+
+  test:
+    name: unittest (Python ${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.9 is the floor (PEP 585 builtin generics); 3.13 maintenance, 3.14 current.
+        python-version: ["3.9", "3.10", "3.11", "3.12", "3.13", "3.14"]
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd  # v6.0.2
+      - uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405  # v6.2.0
+        with:
+          python-version: ${{ matrix.python-version }}
+          # No cache: zero pip deps, nothing to cache.
+      - name: Run the stdlib test suite
+        # No dependencies, no pytest — stdlib unittest only.
+        run: python3 -m unittest discover -s tests -v

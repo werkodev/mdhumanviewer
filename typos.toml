@@ -1,0 +1,3 @@
+# typos config — allowlist domain abbreviations that are not misspellings.
+[default.extend-words]
+nd = "nd"  # loop variable (graph node) in scripts/init_session.py, not a typo for "and"

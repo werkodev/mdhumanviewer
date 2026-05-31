@@ -1,0 +1,23 @@
+# macOS metadata
+.DS_Store
+
+# mdHumanViewer session artifacts (regenerated each run)
+.mdHumanViewer/
+
+# Python
+__pycache__/
+*.pyc
+
+# Claude Code local worktrees
+.claude/worktrees/
+
+# Claude Code per-developer local settings (permissions, etc.) — never publish
+.claude/settings.local.json
+
+# Claude Code runtime lock (scheduled tasks) — transient, never publish
+.claude/scheduled_tasks.lock
+
+# Internal dated implementation plans — kept locally, NOT shipped in the public
+# release (they reference private corpora and developer paths). docs/ itself
+# stays tracked so the README screenshot (docs/screenshot.png) ships.
+docs/plans/

@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
+  "name": "werkodev",
+  "owner": {
+    "name": "werkodev",
+    "email": "hi@werko.dev",
+    "url": "https://werko.dev"
+  },
+  "description": "Plugins by werkodev — focused, deterministic Claude Code tools that each do one thing well.",
+  "plugins": [
+    {
+      "name": "mdhumanviewer",
+      "displayName": "mdHumanViewer",
+      "source": "./",
+      "description": "Turn a folder of related Markdown into one self-contained, human-readable HTML overview — a view, not storage: it never touches your source .md and regenerates on demand. Read-once, fully parallel, with deterministic assembly and four fidelity gates.",
+      "category": "documentation",
+      "keywords": [
+        "markdown",
+        "html",
+        "overview",
+        "documentation",
+        "system-map",
+        "onboarding",
+        "audit"
+      ]
+    }
+  ]
+}

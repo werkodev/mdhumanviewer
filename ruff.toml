@@ -1,0 +1,26 @@
+# Conservative ruff config for an existing, previously-unlinted py39 stdlib codebase.
+# High-signal, low-noise to start; expand `select` only after each batch lands green.
+# Wired into CI as REPORT-ONLY (see .github/workflows/ci.yml) until the one-time
+# cleanup; then drop `continue-on-error` there to gate.
+
+target-version = "py39"  # keeps UP007/PEP-604 OFF: there is no
+                         # `from __future__ import annotations`, so annotations are
+                         # evaluated at runtime and `X | Y` would break on 3.9.
+line-length = 100        # measured fit (88 -> 72 long lines, 100 -> 8, all in tests).
+
+[lint]
+select = [
+  "F",   # pyflakes: undefined names, unused imports/vars
+  "E",   # pycodestyle errors
+  "W",   # pycodestyle warnings
+  "I",   # isort (stdlib-only imports -> zero resolution risk)
+  "B",   # flake8-bugbear (measured 0 findings — pure safety net)
+  "UP",  # pyupgrade (safe modernizations)
+]
+ignore = [
+  "UP031",  # %-format -> f-string rewrites: 19 hits, mostly tests; churny, low value
+  "E741",   # ambiguous variable names (l/I/O): 4 cosmetic hits, not release-blocking
+]
+
+[lint.per-file-ignores]
+"tests/*" = ["E501"]  # the 8 over-100 lines are all in test fixtures

@@ -1,0 +1,1564 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>mdHumanViewer — overview</title>
+<!--
+  mdHumanViewer SHELL TEMPLATE (design-system.html)
+  ---------------------------------------------------
+  Direction: v3-technical-density (Technical High-Density).
+  An engineering instrument-panel register — cooler precise neutrals, a
+  confident technical blue accent, denser spacing, monospace-accented
+  metadata / zone labels / file paths / TOC entries, thin but assertive
+  structural rules. Reads like a high-quality technical reference /
+  observability console. Functional (not decorative) colour only.
+
+  This is the committed, self-contained design system that scripts/assemble.py
+  reads and injects generated zone HTML into. It is authored ONCE (or on
+  `--reskin`); it is NOT regenerated per run. System font stack only — NO web
+  fonts at runtime, no external CSS/JS/img, no @import of a remote url,
+  no url(http...) in styles, no remote SVG image.
+
+  assemble.py replaces the text BETWEEN each MDHV:<ZONE>:START / :END comment
+  pair (in reading order: STRAP, TOC, GRAPH, FINDINGS, FILES). The markers MUST
+  remain present; placeholder content lives strictly between the comments so the
+  committed file is itself a valid, viewable document.
+-->
+<style>
+/* ===================================================================
+   Tokens — instrument-panel neutrals + one functional technical accent.
+   Body text is #15212b on #fdfdfc (>= 14:1). Muted #475569 (>= 7:1);
+   faint #5b6675 (>= 5:1). Severity always pairs a hue with a glyph +
+   text label, so meaning never rests on colour alone.
+   =================================================================== */
+:root {
+  --mdhv-font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+    Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji", sans-serif;
+  --mdhv-font-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+    "Liberation Mono", monospace;
+
+  --mdhv-ink: #15212b;           /* body text — 14.6:1 on surface       */
+  --mdhv-ink-muted: #475569;     /* secondary text — 7.6:1 on surface   */
+  --mdhv-ink-faint: #5b6675;     /* tertiary / captions — 5.6:1         */
+  --mdhv-surface: #fdfdfc;       /* faintly warm paper-white            */
+  --mdhv-surface-alt: #f1f3f5;   /* zone bands, code wells              */
+  --mdhv-surface-sunk: #e7eaee;
+  --mdhv-line: #d3d8df;          /* hairlines                           */
+  --mdhv-line-strong: #aab2bd;
+  --mdhv-line-rule: #2b3a47;     /* assertive structural rules          */
+
+  --mdhv-accent: #14568c;        /* links / hubs — confident blue, 6.9:1*/
+  --mdhv-accent-deep: #0e3e66;
+  --mdhv-accent-soft: #e4edf5;
+  --mdhv-focus: #0a6bd6;         /* focus ring                          */
+
+  --mdhv-contract-edge: #1f6b58; /* contract callout — deep technical green */
+  --mdhv-contract-band: #e9f3ef;
+  --mdhv-contract-ink: #14503f;  /* contract label — 7.0:1 on band      */
+
+  --mdhv-high: #9a1c1c;          /* severity high — 7.3:1 on surface    */
+  --mdhv-high-band: #fbeaea;
+  --mdhv-medium: #8a5b00;        /* severity medium — 5.8:1             */
+  --mdhv-medium-band: #fbf2dd;
+  --mdhv-low: #2f5d2f;           /* severity low — 6.0:1                */
+  --mdhv-low-band: #e9f1e9;
+
+  --mdhv-radius: 3px;
+  --mdhv-gap: 0.85rem;
+  --mdhv-toc-w: 15rem;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+
+html { scroll-behavior: smooth; }
+
+body {
+  margin: 0;
+  font-family: var(--mdhv-font-sans);
+  font-size: 15.5px;
+  line-height: 1.5;
+  color: var(--mdhv-ink);
+  background: var(--mdhv-surface);
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+}
+
+a {
+  color: var(--mdhv-accent);
+  text-decoration: none;
+  border-bottom: 1px solid transparent;
+}
+a:hover { border-bottom-color: currentColor; }
+
+/* Visible focus rings on every interactive element. */
+a:focus-visible,
+button:focus-visible,
+summary:focus-visible,
+[tabindex]:focus-visible {
+  outline: 2px solid var(--mdhv-focus);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+code, pre, kbd, samp { font-family: var(--mdhv-font-mono); }
+code {
+  font-size: 0.86em;
+  background: var(--mdhv-surface-alt);
+  padding: 0.08em 0.34em;
+  border-radius: 2px;
+  border: 1px solid var(--mdhv-line);
+}
+pre {
+  background: var(--mdhv-surface-alt);
+  border: 1px solid var(--mdhv-line);
+  border-left: 2px solid var(--mdhv-line-strong);
+  border-radius: var(--mdhv-radius);
+  padding: 0.8rem 1rem;
+  overflow: auto;
+  line-height: 1.45;
+  font-size: 0.85rem;
+}
+
+/* -------- skip link (keyboard landmark to top) -------- */
+.mdhv-skip {
+  position: absolute;
+  left: -9999px;
+  top: 0;
+  background: var(--mdhv-ink);
+  color: #fff;
+  padding: 0.5rem 0.9rem;
+  font-family: var(--mdhv-font-mono);
+  font-size: 0.82rem;
+  border-radius: 0 0 var(--mdhv-radius) 0;
+  z-index: 100;
+}
+.mdhv-skip:focus {
+  left: 0;
+  border-bottom: 0;
+}
+
+/* ===================================================================
+   Layout — wide technical column with a sticky side TOC. Mobile folds
+   the TOC into a top jump-nav (see media query).
+   =================================================================== */
+.mdhv-shell {
+  display: grid;
+  grid-template-columns: var(--mdhv-toc-w) minmax(0, 1fr);
+  gap: 2rem;
+  max-width: 82rem;
+  margin: 0 auto;
+  padding: 0 1.6rem 5rem;
+  align-items: start;
+}
+
+/* ---- Zone 1: identity strap ----
+   An instrument register bar: name set bold, every metadatum monospace and
+   delimited by a thin pipe. */
+.mdhv-strap {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.3rem 0.95rem;
+  padding: 0.95rem 0 0.7rem;
+  margin-bottom: 0.3rem;
+  border-bottom: 2px solid var(--mdhv-line-rule);
+  font-size: 0.9rem;
+}
+/* placeholder hook (BEM) + assemble-emitted hook share the same treatment */
+.mdhv-strap__name,
+.mdhv-strap-root {
+  font-size: 1.08rem;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  color: var(--mdhv-ink);
+  font-family: var(--mdhv-font-mono);
+}
+.mdhv-strap__fact,
+.mdhv-strap-files,
+.mdhv-strap-tokens,
+.mdhv-strap-language {
+  color: var(--mdhv-ink-muted);
+  white-space: nowrap;
+  font-family: var(--mdhv-font-mono);
+  font-size: 0.82rem;
+}
+.mdhv-strap__fact::before,
+.mdhv-strap-files::before,
+.mdhv-strap-tokens::before,
+.mdhv-strap-language::before {
+  content: "\007C";              /* vertical bar delimiter */
+  margin-right: 0.95rem;
+  color: var(--mdhv-line-strong);
+  font-weight: 400;
+}
+.mdhv-strap__fact:first-of-type::before { content: none; }
+.mdhv-jumpnav {
+  margin-left: auto;
+  display: flex;
+  gap: 0.7rem;
+  font-size: 0.76rem;
+  font-family: var(--mdhv-font-mono);
+}
+.mdhv-jumpnav a {
+  color: var(--mdhv-ink-muted);
+  border-bottom: 0;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.mdhv-jumpnav a:hover { color: var(--mdhv-accent); }
+
+/* ---- Zone 1: "at a glance" overview panel (R1) ----
+   A full-width hairline-bordered card under the masthead metadata line.
+   Computed facts only: monospace stat readout, a severity-glyph findings tally
+   (glyph + label, so meaning is never colour-only), and up to five hub-file
+   chips. CSS-only hooks (mdhv-overview / -stat / -jump / -hubs) — NOT in
+   REQUIRED_CLASS_HOOKS, matching the mdhv-finding-files / -totop precedent. */
+.mdhv-overview {
+  grid-column: 1 / -1;
+  width: 100%;
+  margin: 0.6rem 0 0.2rem;
+  padding: 0.7rem 0.85rem;
+  border: 1px solid var(--mdhv-line);
+  border-left: 3px solid var(--mdhv-line-rule);
+  border-radius: var(--mdhv-radius);
+  background: var(--mdhv-surface);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem 1.4rem;
+}
+.mdhv-overview-stat {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem 1.1rem;
+  margin: 0;
+  font-family: var(--mdhv-font-mono);
+}
+.mdhv-overview-stat > div {
+  display: flex;
+  align-items: baseline;
+  gap: 0.35rem;
+}
+.mdhv-overview-stat dt {
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--mdhv-ink-faint);
+  margin: 0;
+}
+.mdhv-overview-stat dd {
+  margin: 0;
+  font-size: 0.96rem;
+  font-weight: 700;
+  color: var(--mdhv-ink);
+}
+.mdhv-overview-jump {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem;
+}
+/* the per-severity tally reuses the .mdhv-severity-*-badge glyph+label idiom
+   (defined in the findings block) so the colour never carries meaning alone. */
+.mdhv-overview-jump a { border-bottom: 0; }
+.mdhv-overview-jump-all {
+  font-family: var(--mdhv-font-mono);
+  font-size: 0.78rem;
+  color: var(--mdhv-ink-muted);
+}
+.mdhv-overview-jump-all:hover { color: var(--mdhv-accent); }
+.mdhv-overview-hubs {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.3rem 0.4rem;
+}
+.mdhv-overview-hubs-label {
+  font-family: var(--mdhv-font-mono);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  color: var(--mdhv-ink-faint);
+  margin-right: 0.2rem;
+}
+.mdhv-overview-hubs a {
+  font-size: 0.76rem;
+  font-family: var(--mdhv-font-mono);
+  padding: 0.12rem 0.45rem;
+  border: 1px solid var(--mdhv-line);
+  border-radius: 2px;
+  color: var(--mdhv-ink-muted);
+  border-bottom-width: 1px;
+}
+.mdhv-overview-hubs a:hover {
+  border-color: var(--mdhv-accent);
+  color: var(--mdhv-accent);
+}
+
+/* ---- Sticky side TOC ----
+   A scanning column: monospace entries, thin left index rule, active row
+   marked by an accent bar + filled tint. */
+.mdhv-toc {
+  position: sticky;
+  top: 0.85rem;
+  align-self: start;
+  max-height: calc(100vh - 1.7rem);
+  overflow: auto;
+  padding-right: 0.4rem;
+  font-size: 0.85rem;
+  border-right: 1px solid var(--mdhv-line);
+}
+.mdhv-toc__label {
+  text-transform: uppercase;
+  letter-spacing: 0.11em;
+  font-size: 0.68rem;
+  font-weight: 700;
+  font-family: var(--mdhv-font-mono);
+  color: var(--mdhv-ink-faint);
+  margin: 0.2rem 0 0.5rem;
+  padding-bottom: 0.35rem;
+  border-bottom: 1px solid var(--mdhv-line);
+}
+.mdhv-toc ol, .mdhv-toc ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  counter-reset: mdhv-toc;
+}
+.mdhv-toc-item { margin: 0; }
+.mdhv-toc-item > a {
+  display: block;
+  padding: 0.22rem 0.5rem 0.22rem 0.55rem;
+  color: var(--mdhv-ink-muted);
+  border-bottom: 0;
+  border-left: 2px solid var(--mdhv-line);
+  line-height: 1.3;
+  font-family: var(--mdhv-font-mono);
+  font-size: 0.8rem;
+}
+.mdhv-toc-item > a:hover {
+  background: var(--mdhv-surface-alt);
+  color: var(--mdhv-ink);
+  border-left-color: var(--mdhv-line-strong);
+}
+/* Active highlight driven by the inline script (and a no-JS hover). */
+.mdhv-toc-item.is-active > a,
+.mdhv-toc-item.is-active > .mdhv-toc-disclosure > .mdhv-toc-summary > a {
+  color: var(--mdhv-accent-deep);
+  font-weight: 600;
+  border-left-color: var(--mdhv-accent);
+  background: var(--mdhv-accent-soft);
+}
+
+/* ---- Per-file section sub-nav (Phase C) ----
+   Under each file's TOC item, a nested collapsible list of that file's
+   headings. Each sub-link href is #{slug}--{anchor}, built from the same
+   structure.json heading object that defines the page id space, so it always
+   resolves. .mdhv-toc-disclosure / -summary / -sub / -sub-item are CSS-only
+   hooks (NOT in REQUIRED_CLASS_HOOKS), matching the -finding-files / -badge
+   convention. The disclosure is a <details>, collapsible per file to stay
+   compact. */
+.mdhv-toc-disclosure { margin: 0; }
+.mdhv-toc-summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: stretch;
+}
+.mdhv-toc-summary::-webkit-details-marker { display: none; }
+.mdhv-toc-summary::before {
+  content: "\25B8";                /* ▸ collapsed */
+  flex: 0 0 auto;
+  align-self: center;
+  margin-left: 0.15rem;
+  color: var(--mdhv-ink-faint);
+  font-size: 0.7rem;
+  transition: transform 0.12s ease;
+}
+.mdhv-toc-disclosure[open] > .mdhv-toc-summary::before { transform: rotate(90deg); }
+.mdhv-toc-summary > a { flex: 1 1 auto; }
+.mdhv-toc-sub {
+  margin: 0 0 0.15rem !important;
+  padding: 0 0 0.1rem 0 !important;
+}
+.mdhv-toc-sub-item { margin: 0; }
+.mdhv-toc-sub-item > a {
+  display: block;
+  padding: 0.12rem 0.4rem 0.12rem 1.35rem;
+  color: var(--mdhv-ink-muted);
+  border-left: 2px solid var(--mdhv-line);
+  font-family: var(--mdhv-font-mono);
+  font-size: 0.74rem;
+  line-height: 1.3;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.mdhv-toc-sub-item[data-level="3"] > a { padding-left: 1.95rem; }
+.mdhv-toc-sub-item[data-level="4"] > a,
+.mdhv-toc-sub-item[data-level="5"] > a,
+.mdhv-toc-sub-item[data-level="6"] > a { padding-left: 2.55rem; }
+.mdhv-toc-sub-item > a:hover {
+  background: var(--mdhv-surface-alt);
+  color: var(--mdhv-ink);
+  border-left-color: var(--mdhv-line-strong);
+}
+/* sharper active highlight, extended to sub-sections by the inline script */
+.mdhv-toc-sub-item.is-active > a {
+  color: var(--mdhv-accent-deep);
+  font-weight: 600;
+  border-left-color: var(--mdhv-accent);
+  background: var(--mdhv-accent-soft);
+}
+
+.mdhv-main { min-width: 0; }
+
+/* ---- Generic section rhythm ---- */
+.mdhv-section { margin: 0 0 1.3rem; }
+.mdhv-section > h2,
+.mdhv-section > h3 {
+  margin: 0 0 0.5rem;
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+}
+.mdhv-section > h3 { font-size: 1.02rem; }
+/* zone labels read like register headers: monospace, ruled, accented tick */
+.mdhv-zone-label {
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-size: 0.7rem;
+  font-weight: 700;
+  font-family: var(--mdhv-font-mono);
+  color: var(--mdhv-ink);
+  margin: 1.5rem 0 0.65rem;
+  padding-bottom: 0.32rem;
+  border-bottom: 2px solid var(--mdhv-line-rule);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+.mdhv-zone-label::before {
+  content: "";
+  width: 0.55rem;
+  height: 0.55rem;
+  background: var(--mdhv-accent);
+  display: inline-block;
+  flex: none;
+}
+
+/* ---- Zone 1 essence / keypoints block ----
+   A boxed register panel; accent rule on the left, monospace caption tab. */
+.mdhv-keypoints {
+  background: var(--mdhv-surface-alt);
+  border: 1px solid var(--mdhv-line);
+  border-left: 3px solid var(--mdhv-accent);
+  border-radius: var(--mdhv-radius);
+  padding: 0.8rem 1rem;
+  margin: 0 0 1.15rem;
+}
+.mdhv-keypoints > :first-child { margin-top: 0; }
+.mdhv-keypoints > :last-child { margin-bottom: 0; }
+.mdhv-keypoints strong { letter-spacing: 0.01em; }
+.mdhv-keypoints ul { margin: 0.4rem 0 0; padding-left: 1.15rem; }
+.mdhv-keypoints li { margin: 0.16rem 0; }
+
+/* ---- verbatim_critical contract callout ----
+   Bordered, never collapsed, never reworded. Carries an explicit monospace
+   label so meaning is icon + text, not colour. */
+.mdhv-contract {
+  background: var(--mdhv-contract-band);
+  border: 1px solid var(--mdhv-contract-edge);
+  border-left: 4px solid var(--mdhv-contract-edge);
+  border-radius: var(--mdhv-radius);
+  padding: 0.65rem 0.95rem 0.7rem;
+  margin: 0.85rem 0;
+  color: var(--mdhv-ink);
+}
+.mdhv-contract::before {
+  content: "\00A7 CONTRACT \2014 VERBATIM";
+  display: block;
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  font-family: var(--mdhv-font-mono);
+  text-transform: uppercase;
+  color: var(--mdhv-contract-ink);
+  margin-bottom: 0.4rem;
+}
+.mdhv-contract p { margin: 0.28rem 0; }
+.mdhv-contract code { background: rgba(15,33,43,0.06); border-color: rgba(15,33,43,0.12); }
+
+/* ---- Long rendered prose behind native disclosure ---- */
+.mdhv-detail {
+  border: 1px solid var(--mdhv-line);
+  border-radius: var(--mdhv-radius);
+  margin: 0.75rem 0;
+  background: var(--mdhv-surface);
+}
+.mdhv-detail > summary {
+  cursor: pointer;
+  padding: 0.55rem 0.85rem;
+  font-weight: 600;
+  font-size: 0.92rem;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  color: var(--mdhv-ink);
+}
+.mdhv-detail > summary::-webkit-details-marker { display: none; }
+.mdhv-detail > summary::before {
+  content: "\25B8";              /* triangle glyph, rotates on open */
+  display: inline-block;
+  color: var(--mdhv-accent);
+  font-size: 0.8em;
+  transition: transform 0.15s ease;
+}
+.mdhv-detail[open] > summary::before { transform: rotate(90deg); }
+.mdhv-detail[open] > summary { border-bottom: 1px solid var(--mdhv-line); }
+.mdhv-detail > summary:hover { background: var(--mdhv-surface-alt); }
+.mdhv-detail > *:not(summary) {
+  padding: 0 0.9rem 0.8rem;
+  margin-top: 0.7rem;
+}
+
+/* ---- Link back to the source .md ----
+   Monospace file path with a north-east arrow tick. */
+.mdhv-src-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.78rem;
+  font-family: var(--mdhv-font-mono);
+  color: var(--mdhv-ink-muted);
+  border-bottom: 0;
+}
+.mdhv-src-link::before {
+  content: "\2197";              /* north-east arrow glyph */
+  font-family: var(--mdhv-font-sans);
+  color: var(--mdhv-accent);
+}
+.mdhv-src-link:hover { color: var(--mdhv-accent); }
+
+/* ===================================================================
+   Zone 2 — system map. Three deterministic render modes; all share the
+   region styling. Chips, matrix cells, and SVG nodes/edges live here.
+   =================================================================== */
+.mdhv-graph {
+  border: 1px solid var(--mdhv-line);
+  border-top: 2px solid var(--mdhv-line-rule);
+  border-radius: var(--mdhv-radius);
+  background: var(--mdhv-surface);
+  padding: 0.95rem 1.05rem 1rem;
+  margin: 0 0 0.6rem;
+}
+.mdhv-graph svg { max-width: 100%; height: auto; display: block; }
+.mdhv-graph-chips { display: flex; flex-wrap: wrap; align-items: center; }
+
+/* node — chip in the index strip, or a node group inside the SVG.
+   Squared chip with a leading mono tick: an instrument register, not a pill. */
+.mdhv-node {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.26rem 0.6rem;
+  margin: 0.2rem 0.3rem 0.2rem 0;
+  font-size: 0.82rem;
+  font-weight: 600;
+  font-family: var(--mdhv-font-mono);
+  color: var(--mdhv-ink);
+  background: var(--mdhv-surface-alt);
+  border: 1px solid var(--mdhv-line-strong);
+  border-radius: 2px;
+  border-bottom: 0;
+  border-left: 2px solid var(--mdhv-line-strong);
+}
+.mdhv-node:hover { border-color: var(--mdhv-accent); border-left-color: var(--mdhv-accent); color: var(--mdhv-accent); }
+.mdhv-node.is-hub {
+  border-color: var(--mdhv-accent);
+  border-left-color: var(--mdhv-accent);
+  background: var(--mdhv-accent-soft);
+  color: var(--mdhv-accent-deep);
+}
+/* SVG variants of the same hook */
+svg .mdhv-node text,
+svg .mdhv-node .mdhv-node-label,
+svg .mdhv-node .mdhv-node-label-hub {
+  font-family: var(--mdhv-font-mono);
+  font-size: 11px;
+  fill: var(--mdhv-ink);
+  text-anchor: middle;
+}
+svg .mdhv-node .mdhv-node-label-hub { font-weight: 700; fill: var(--mdhv-accent-deep); }
+svg .mdhv-node circle, svg .mdhv-node rect {
+  fill: var(--mdhv-surface-alt);
+  stroke: var(--mdhv-line-strong);
+  stroke-width: 1.5;
+}
+svg .mdhv-node[data-hub="true"] circle {
+  fill: var(--mdhv-accent-soft);
+  stroke: var(--mdhv-accent);
+  stroke-width: 2;
+}
+svg .mdhv-graph-svg #mdhv-arrow path { fill: var(--mdhv-ink-muted); }
+
+/* edge — solid for strong, dashed + faded for weak (tentative). In the
+   adjacency-matrix mode, edge cells reuse this hook. */
+.mdhv-edge { stroke: var(--mdhv-ink-muted); stroke-width: 1.6; fill: none; }
+.mdhv-edge.is-weak,
+.mdhv-edge.mdhv-edge-weak {
+  stroke-dasharray: 5 3;
+  opacity: 0.45;
+  stroke-width: 1;
+}
+.mdhv-edge.mdhv-edge-strong { stroke: var(--mdhv-ink); stroke-width: 1.6; }
+
+table.mdhv-matrix { border-collapse: collapse; font-size: 0.8rem; font-family: var(--mdhv-font-mono); }
+table.mdhv-matrix th, table.mdhv-matrix td {
+  border: 1px solid var(--mdhv-line);
+  padding: 0.28rem 0.42rem;
+  text-align: center;
+}
+table.mdhv-matrix th { background: var(--mdhv-surface-alt); font-weight: 600; }
+.mdhv-matrix .mdhv-matrix-corner,
+.mdhv-matrix .mdhv-matrix-self { background: var(--mdhv-surface-sunk); }
+.mdhv-matrix td.mdhv-edge { color: var(--mdhv-ink); font-weight: 700; }              /* strong */
+.mdhv-matrix td.mdhv-edge-strong { background: var(--mdhv-accent-soft); color: var(--mdhv-accent-deep); }
+.mdhv-matrix td.mdhv-edge.is-weak,
+.mdhv-matrix td.mdhv-edge-weak { background: transparent; opacity: 1; color: var(--mdhv-ink-faint); } /* weak  */
+
+.mdhv-graph-caption {
+  margin: 0.6rem 0 0;
+  font-size: 0.8rem;
+  font-family: var(--mdhv-font-mono);
+  color: var(--mdhv-ink-faint);
+  line-height: 1.45;
+  padding-top: 0.5rem;
+  border-top: 1px solid var(--mdhv-line);
+}
+.mdhv-graph-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.9rem;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.76rem;
+  font-family: var(--mdhv-font-mono);
+  color: var(--mdhv-ink-muted);
+}
+.mdhv-graph-legend li { display: flex; align-items: center; gap: 0.4rem; }
+.mdhv-graph-legend li::before {
+  content: "";
+  width: 1.1rem; height: 0;
+  border-top: 2px solid var(--mdhv-ink);
+  display: inline-block;
+}
+.mdhv-graph-legend li.mdhv-edge-weak::before { border-top-style: dashed; opacity: 0.5; }
+
+/* graph-key — fixed style->meaning conventions key (solid / dashed / hub).
+   CSS-only hook; modelled on .mdhv-graph-legend so each ::before draws the
+   solid-rule, dashed-rule, or filled-dot swatch it names. */
+.mdhv-graph-key {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem 0.9rem;
+  margin: 0.5rem 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 0.76rem;
+  font-family: var(--mdhv-font-mono);
+  color: var(--mdhv-ink-muted);
+}
+.mdhv-graph-key li { display: flex; align-items: center; gap: 0.4rem; }
+.mdhv-graph-key li::before {
+  content: "";
+  width: 1.1rem; height: 0;
+  border-top: 2px solid var(--mdhv-ink);
+  display: inline-block;
+}
+.mdhv-graph-key li.mdhv-edge-weak::before { border-top-style: dashed; opacity: 0.5; }
+.mdhv-graph-key li.mdhv-graph-key-hub::before {
+  width: 0.7rem; height: 0.7rem;
+  border-top: 0;
+  border-radius: 50%;
+  background: var(--mdhv-accent);
+}
+
+/* isolated-node strip — grouped separately from the main canvas */
+.mdhv-graph-isolated {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem;
+  margin: 0.55rem 0 0;
+}
+.mdhv-graph-isolated-label {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.68rem;
+  font-weight: 700;
+  font-family: var(--mdhv-font-mono);
+  color: var(--mdhv-ink-faint);
+  margin-right: 0.35rem;
+}
+
+/* ===================================================================
+   Zone 3 — findings (highest weight). One card per finding, grouped by
+   type, sorted by severity. Severity = icon glyph + text label + hue.
+   =================================================================== */
+.mdhv-findings { margin: 0 0 0.6rem; }
+.mdhv-findings__group,
+.mdhv-findings-group { margin: 0 0 1rem; }
+.mdhv-findings__group-label,
+.mdhv-findings-group > h2 {
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-size: 0.72rem;
+  font-weight: 700;
+  font-family: var(--mdhv-font-mono);
+  color: var(--mdhv-ink-faint);
+  margin: 0 0 0.5rem;
+  padding-bottom: 0.3rem;
+  border-bottom: 1px solid var(--mdhv-line);
+}
+.mdhv-finding {
+  border: 1px solid var(--mdhv-line);
+  border-left-width: 3px;
+  border-radius: var(--mdhv-radius);
+  padding: 0.7rem 0.9rem 0.75rem;
+  margin: 0 0 0.6rem;
+  background: var(--mdhv-surface);
+}
+/* finding title — placeholder uses .mdhv-finding__title; assemble emits <h3> */
+.mdhv-finding__title,
+.mdhv-finding > h3 {
+  margin: 0 0 0.3rem;
+  font-size: 0.98rem;
+  font-weight: 700;
+  letter-spacing: -0.005em;
+  line-height: 1.3;
+}
+.mdhv-finding__desc,
+.mdhv-finding > p {
+  margin: 0.3rem 0 0.5rem;
+  color: var(--mdhv-ink);
+  font-size: 0.92rem;
+}
+.mdhv-finding__files,
+.mdhv-finding-files {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin-top: 0.45rem;
+}
+.mdhv-finding__files a,
+.mdhv-finding-files a {
+  font-size: 0.76rem;
+  font-family: var(--mdhv-font-mono);
+  padding: 0.12rem 0.45rem;
+  border: 1px solid var(--mdhv-line);
+  border-radius: 2px;
+  color: var(--mdhv-ink-muted);
+}
+.mdhv-finding__files a:hover,
+.mdhv-finding-files a:hover { border-color: var(--mdhv-accent); color: var(--mdhv-accent); }
+
+/* A<->B contradiction comparison grid — "what file A says <=> what file B says".
+   CSS-only hooks (mdhv-finding-compare / -claim) — NOT in REQUIRED_CLASS_HOOKS.
+   2 columns on a wide screen, collapsing to stacked rows under 56rem; a hairline
+   divider between cells, a monospace file label, claim text in body ink. */
+.mdhv-finding-compare {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0;
+  margin: 0.45rem 0 0.2rem;
+  border: 1px solid var(--mdhv-line);
+  border-radius: var(--mdhv-radius);
+  background: var(--mdhv-surface-alt);
+  overflow: hidden;
+}
+.mdhv-finding-claim {
+  padding: 0.5rem 0.7rem;
+  border-left: 1px solid var(--mdhv-line);
+}
+.mdhv-finding-claim:first-child { border-left: 0; }
+.mdhv-finding-claim-file {
+  display: block;
+  font-size: 0.72rem;
+  font-family: var(--mdhv-font-mono);
+  color: var(--mdhv-ink-muted);
+  margin-bottom: 0.3rem;
+}
+.mdhv-finding-claim-file a { color: var(--mdhv-ink-muted); border-bottom: 0; }
+.mdhv-finding-claim-file a:hover { color: var(--mdhv-accent); }
+.mdhv-finding-claim > p {
+  margin: 0;
+  color: var(--mdhv-ink);
+  font-size: 0.9rem;
+  line-height: 1.4;
+}
+
+/* Severity badge — glyph + label. Colour reinforces, never carries alone.
+   Placeholder hook .mdhv-sev; assemble emits .mdhv-severity-<level>-badge. */
+.mdhv-sev,
+.mdhv-severity-high-badge,
+.mdhv-severity-medium-badge,
+.mdhv-severity-low-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  font-family: var(--mdhv-font-mono);
+  text-transform: uppercase;
+  padding: 0.08rem 0.45rem;
+  border-radius: 2px;
+  border: 1px solid currentColor;
+}
+.mdhv-sev::before { font-weight: 700; }
+.mdhv-severity-label { letter-spacing: 0.07em; }
+
+.mdhv-severity-high { border-left-color: var(--mdhv-high); }
+.mdhv-severity-high .mdhv-sev,
+.mdhv-severity-high-badge {
+  color: var(--mdhv-high);
+  background: var(--mdhv-high-band);
+}
+.mdhv-severity-high .mdhv-sev::before { content: "\26A0"; }   /* warning sign */
+
+.mdhv-severity-medium { border-left-color: var(--mdhv-medium); }
+.mdhv-severity-medium .mdhv-sev,
+.mdhv-severity-medium-badge {
+  color: var(--mdhv-medium);
+  background: var(--mdhv-medium-band);
+}
+.mdhv-severity-medium .mdhv-sev::before { content: "\25C9"; } /* fisheye */
+
+.mdhv-severity-low { border-left-color: var(--mdhv-low); }
+.mdhv-severity-low .mdhv-sev,
+.mdhv-severity-low-badge {
+  color: var(--mdhv-low);
+  background: var(--mdhv-low-band);
+}
+.mdhv-severity-low .mdhv-sev::before { content: "\25CB"; }    /* open circle */
+
+.mdhv-findings__empty,
+.mdhv-findings-empty {
+  color: var(--mdhv-ink-faint);
+  font-style: italic;
+  font-family: var(--mdhv-font-mono);
+  padding: 0.5rem 0;
+}
+
+/* ===================================================================
+   Zone 4 — per-file stack. Strong separators between files; the injected
+   fragments use the .mdhv-* content hooks defined above.
+   =================================================================== */
+.mdhv-files { margin: 0; }
+.mdhv-file {
+  padding-top: 1.25rem;
+  margin-top: 1.25rem;
+  border-top: 2px solid var(--mdhv-line-rule);
+}
+.mdhv-file:first-child { border-top: 0; margin-top: 0; padding-top: 0; }
+.mdhv-file-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.4rem 1rem;
+  margin-bottom: 0.65rem;
+}
+.mdhv-file-header h2 {
+  margin: 0;
+  font-size: 1.22rem;
+  letter-spacing: -0.015em;
+}
+/* Per-file "in N findings" backlink (Phase C). Points at #mdhv-findings (an
+   allowed chrome anchor). .mdhv-file-findings-link is a CSS-only hook (not in
+   REQUIRED_CLASS_HOOKS). Reads as a small muted pill so it sits quietly next to
+   the source path without competing with the file title. */
+.mdhv-file-findings-link {
+  flex: 0 0 auto;
+  font-family: var(--mdhv-font-mono);
+  font-size: 0.72rem;
+  letter-spacing: 0.01em;
+  color: var(--mdhv-high);
+  background: var(--mdhv-high-band);
+  border: 1px solid var(--mdhv-line);
+  border-radius: 999px;
+  padding: 0.08rem 0.55rem;
+  white-space: nowrap;
+}
+.mdhv-file-findings-link::before {
+  content: "\26A0";                /* ⚠ glyph — meaning never on colour alone */
+  margin-right: 0.3rem;
+}
+.mdhv-file-findings-link:hover {
+  border-color: var(--mdhv-high);
+  border-bottom-color: var(--mdhv-high);
+}
+
+/* ===================================================================
+   Zone 4 — in-fragment reading polish (Phase D, pure presentation).
+   These rules style the rendered-markdown BODY of each file fragment:
+   tables, prose measure, heading hierarchy, link affordances. They are
+   scoped to .mdhv-file (Zone 4) so they never touch the Zone-2 graph
+   adjacency matrix (table.mdhv-matrix lives in .mdhv-graph, not .mdhv-file)
+   or the chrome TOC. No new class hooks — element selectors only.
+   =================================================================== */
+
+/* ---- Rendered markdown tables ----
+   The real corpora are large rule-tables; this is the biggest readability
+   win. Header band, zebra body rows, hairline cells, a slightly smaller
+   measured size, and horizontal scroll when a wide table overflows the
+   reading column (the table becomes its own scroll region rather than
+   forcing the page wide). Scoped to .mdhv-file so the graph matrix and the
+   sticky TOC are untouched. */
+.mdhv-file table {
+  display: block;            /* lets a wide table scroll instead of overflow */
+  width: 100%;
+  max-width: 100%;
+  overflow-x: auto;
+  border-collapse: collapse;
+  border: 1px solid var(--mdhv-line);
+  border-top: 2px solid var(--mdhv-line-rule);
+  border-radius: var(--mdhv-radius);
+  margin: 0.85rem 0 1.15rem;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  /* keep the scroll affordance discoverable on touch / momentum surfaces */
+  -webkit-overflow-scrolling: touch;
+}
+.mdhv-file table thead {
+  /* header band reads as a register row */
+  background: var(--mdhv-surface-alt);
+}
+.mdhv-file table th,
+.mdhv-file table td {
+  border: 1px solid var(--mdhv-line);
+  padding: 0.4rem 0.6rem;
+  text-align: left;
+  vertical-align: top;
+}
+.mdhv-file table th {
+  font-family: var(--mdhv-font-mono);
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  color: var(--mdhv-ink);
+  white-space: nowrap;
+  border-bottom: 2px solid var(--mdhv-line-strong);
+}
+/* zebra body rows for horizontal tracking across wide rule-tables */
+.mdhv-file table tbody tr:nth-child(even) { background: rgba(15,33,43,0.025); }
+.mdhv-file table tbody tr:hover { background: var(--mdhv-accent-soft); }
+/* inline code inside a cell stays compact, never wraps the cell open */
+.mdhv-file table td code,
+.mdhv-file table th code {
+  font-size: 0.82em;
+  background: var(--mdhv-surface);
+  white-space: nowrap;
+}
+
+/* ---- Comfortable reading measure for prose ----
+   Long-form paragraphs and lists get a capped measure (~72ch) so lines do
+   not run edge-to-edge across the wide technical column. Tables, <pre>, the
+   contract code wells, and the graph are NOT <p>/list elements (or are
+   excluded below), so they keep the full reading width. */
+.mdhv-file .mdhv-section > p,
+.mdhv-file .mdhv-section > ul,
+.mdhv-file .mdhv-section > ol,
+.mdhv-file .mdhv-section > blockquote,
+.mdhv-file > .mdhv-keypoints > p,
+.mdhv-file > .mdhv-keypoints > ul {
+  max-width: 72ch;
+}
+/* a paragraph that exists only to hold the source backlink is not prose */
+.mdhv-file .mdhv-section > p.mdhv-src-link { max-width: none; }
+
+/* ---- In-fragment heading hierarchy ----
+   Tighten the rendered h1..h4 scale + vertical rhythm so a file's internal
+   structure is scannable. Scoped to .mdhv-section bodies; the .mdhv-file
+   title <h2> (in .mdhv-file-header, above) keeps its own size. */
+.mdhv-file .mdhv-section > h1 {
+  font-size: 1.32rem;
+  font-weight: 700;
+  line-height: 1.22;
+  letter-spacing: -0.015em;
+  margin: 0 0 0.55rem;
+}
+.mdhv-file .mdhv-section > h2 {
+  font-size: 1.12rem;
+  font-weight: 700;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+  margin: 1.4rem 0 0.5rem;
+  padding-bottom: 0.25rem;
+  border-bottom: 1px solid var(--mdhv-line);
+}
+.mdhv-file .mdhv-section > h3 {
+  font-size: 1.0rem;
+  font-weight: 700;
+  line-height: 1.3;
+  margin: 1.1rem 0 0.4rem;
+  color: var(--mdhv-ink);
+}
+.mdhv-file .mdhv-section > h4 {
+  font-size: 0.9rem;
+  font-weight: 700;
+  line-height: 1.3;
+  margin: 0.9rem 0 0.35rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-family: var(--mdhv-font-mono);
+  color: var(--mdhv-ink-muted);
+}
+/* the first heading of a section should not push extra top space */
+.mdhv-file .mdhv-section > :is(h1, h2, h3, h4):first-child { margin-top: 0; }
+
+/* ---- Blockquote in rendered prose ---- */
+.mdhv-file .mdhv-section > blockquote {
+  margin: 0.7rem 0;
+  padding: 0.1rem 0 0.1rem 0.9rem;
+  border-left: 3px solid var(--mdhv-line-strong);
+  color: var(--mdhv-ink-muted);
+}
+
+/* ---- Link / hover affordances in fragment body ----
+   Body links earn a quiet underline at rest and a firm one on hover/focus,
+   so they are discoverable in dense prose without shouting. */
+.mdhv-file .mdhv-section a:not(.mdhv-src-link) {
+  border-bottom: 1px solid var(--mdhv-line-strong);
+}
+.mdhv-file .mdhv-section a:not(.mdhv-src-link):hover,
+.mdhv-file .mdhv-section a:not(.mdhv-src-link):focus-visible {
+  color: var(--mdhv-accent-deep);
+  border-bottom-color: currentColor;
+}
+
+/* ===================================================================
+   Reduced-motion: drop every transition/animation, incl. the disclosure
+   marker rotation and smooth scroll, when the user asks for it.
+   =================================================================== */
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after {
+    transition: none !important;
+    animation: none !important;
+  }
+  .mdhv-detail[open] > summary::before { transform: rotate(90deg); }
+}
+
+/* ===================================================================
+   Back-to-top control (Phase C). Static chrome anchor (#mdhv-top). Hidden
+   by the [hidden] attribute until the inline script reveals it on scroll;
+   the script toggles .is-visible for the fade. .mdhv-totop is a CSS-only
+   hook (not in REQUIRED_CLASS_HOOKS). No url(http...).
+   =================================================================== */
+.mdhv-totop {
+  position: fixed;
+  right: 1.1rem;
+  bottom: 1.1rem;
+  z-index: 50;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.45rem 0.7rem;
+  font-family: var(--mdhv-font-mono);
+  font-size: 0.74rem;
+  letter-spacing: 0.04em;
+  color: var(--mdhv-surface);
+  background: var(--mdhv-line-rule);
+  border: 1px solid var(--mdhv-line-rule);
+  border-radius: 999px;
+  box-shadow: 0 2px 8px rgba(21, 33, 43, 0.22);
+  opacity: 0;
+  transform: translateY(0.4rem);
+  transition: opacity 0.18s ease, transform 0.18s ease;
+}
+.mdhv-totop[hidden] { display: none; }
+.mdhv-totop.is-visible { opacity: 1; transform: translateY(0); }
+.mdhv-totop:hover {
+  background: var(--mdhv-accent-deep);
+  border-color: var(--mdhv-accent-deep);
+}
+.mdhv-totop:focus-visible {
+  outline: 2px solid var(--mdhv-focus);
+  outline-offset: 2px;
+}
+.mdhv-totop__glyph { font-size: 0.9rem; line-height: 1; }
+@media (prefers-reduced-motion: reduce) {
+  .mdhv-totop { transition: none; transform: none; }
+  .mdhv-totop.is-visible { transform: none; }
+}
+
+/* ===================================================================
+   Mobile: fold the side TOC into a top jump-nav, stack to one column.
+   =================================================================== */
+@media (max-width: 56rem) {
+  .mdhv-shell { grid-template-columns: minmax(0, 1fr); }
+  .mdhv-toc {
+    position: static;
+    max-height: none;
+    border-right: 0;
+    border-bottom: 1px solid var(--mdhv-line);
+    padding-bottom: 0.6rem;
+    margin-bottom: 0.6rem;
+  }
+  /* the at-a-glance panel reflows to a single column in the mobile layout so
+     stats / findings tally / hub chips stack instead of overflowing. */
+  .mdhv-overview {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.5rem;
+  }
+  /* the A<->B comparison grid stacks to single-column rows on narrow screens;
+     the cell divider becomes a top hairline so the relationship stays legible. */
+  .mdhv-finding-compare { grid-template-columns: minmax(0, 1fr); }
+  .mdhv-finding-claim { border-left: 0; border-top: 1px solid var(--mdhv-line); }
+  .mdhv-finding-claim:first-child { border-top: 0; }
+}
+
+/* ===================================================================
+   Print (Phase D) — produce a clean ink-on-white reading copy. Drop the
+   interactive navigation chrome (sticky TOC, jump-nav, back-to-top), force
+   every <details> open so no
+   content is hidden on paper, give links a full measure, and keep finding
+   and file cards from being split across page breaks. No url(http...).
+   =================================================================== */
+@media print {
+  html { scroll-behavior: auto; }
+  body {
+    background: #fff;
+    color: #000;
+    font-size: 11pt;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+  .mdhv-shell {
+    display: block;
+    max-width: none;
+    margin: 0;
+    padding: 0;
+  }
+
+  /* hide nav chrome that only makes sense on screen */
+  .mdhv-toc,
+  .mdhv-jumpnav,
+  .mdhv-skip,
+  .mdhv-totop { display: none !important; }
+
+  .mdhv-main { width: 100%; }
+
+  /* every disclosure prints expanded — nothing hidden on paper */
+  .mdhv-detail { border: 1px solid #999; }
+  .mdhv-detail > summary { list-style: none; }
+  .mdhv-detail > summary::before { content: none; }
+  .mdhv-detail > *:not(summary) { display: revert !important; }
+
+  /* ink-on-white: neutralise screen tints, keep meaning-bearing rules */
+  .mdhv-keypoints,
+  .mdhv-contract,
+  .mdhv-finding,
+  .mdhv-finding-compare,
+  .mdhv-graph,
+  .mdhv-node,
+  .mdhv-overview,
+  .mdhv-file table thead,
+  .mdhv-file table tbody tr:nth-child(even) { background: #fff !important; }
+  a { color: #000; }
+
+  /* the at-a-glance panel prints (it is content, not nav chrome) — keep it
+     whole on one page with its hairline structure intact. */
+  .mdhv-overview {
+    border: 1px solid #999;
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  /* let prose use the full page width on paper */
+  .mdhv-file .mdhv-section > p,
+  .mdhv-file .mdhv-section > ul,
+  .mdhv-file .mdhv-section > ol,
+  .mdhv-file .mdhv-section > blockquote,
+  .mdhv-file > .mdhv-keypoints > p,
+  .mdhv-file > .mdhv-keypoints > ul { max-width: none; }
+
+  /* avoid breaking a card / table / file across a page boundary */
+  .mdhv-finding,
+  .mdhv-keypoints,
+  .mdhv-contract,
+  .mdhv-graph,
+  .mdhv-file table,
+  pre,
+  blockquote { break-inside: avoid; page-break-inside: avoid; }
+  .mdhv-file { break-before: auto; page-break-inside: auto; }
+  .mdhv-file-header,
+  .mdhv-section > h1,
+  .mdhv-section > h2,
+  .mdhv-section > h3,
+  .mdhv-section > h4 { break-after: avoid; page-break-after: avoid; }
+}
+</style>
+</head>
+<body>
+<a class="mdhv-skip" href="#mdhv-top">Skip to top</a>
+
+<div class="mdhv-shell">
+
+  <!-- ============================================================
+       Zone 1 — identity strap. Top landmark (#mdhv-top) lives here.
+       ============================================================ -->
+  <header id="mdhv-top" class="mdhv-strap">
+    <!-- MDHV:STRAP:START -->
+    <span class="mdhv-strap__name">/path/to/corpus</span>
+    <span class="mdhv-strap__fact">0 files</span>
+    <span class="mdhv-strap__fact">~0 tokens (estimate)</span>
+    <span class="mdhv-strap__fact">language: source</span>
+    <nav class="mdhv-jumpnav" aria-label="Jump to section">
+      <a href="#mdhv-toc">Contents</a>
+      <a href="#mdhv-graph">Map</a>
+      <a href="#mdhv-findings">Findings</a>
+      <a href="#mdhv-files">Files</a>
+      <a href="#mdhv-top">Top</a>
+    </nav>
+    <!-- R1 at-a-glance panel — assemble replaces this whole STRAP region with
+         render_strap + render_overview. The placeholder uses ONLY allowed
+         chrome anchors (#mdhv-findings, #mdhv-files); the runtime hub chips
+         link to #{slug}--file, which never appears in this static template. -->
+    <section class="mdhv-overview" aria-label="At a glance">
+      <dl class="mdhv-overview-stat">
+        <div><dt>files</dt><dd>0</dd></div>
+        <div><dt>strong refs</dt><dd>0</dd></div>
+        <div><dt>weak refs</dt><dd>0</dd></div>
+        <div><dt>hubs</dt><dd>0</dd></div>
+      </dl>
+      <div class="mdhv-overview-jump">
+        <a class="mdhv-overview-jump-all" href="#mdhv-findings">no cross-file findings</a>
+      </div>
+      <div class="mdhv-overview-hubs">
+        <span class="mdhv-overview-hubs-label">Hub files</span>
+        <a class="mdhv-node" href="#mdhv-files">(most-referenced files)</a>
+      </div>
+    </section>
+    <!-- MDHV:STRAP:END -->
+  </header>
+
+  <!-- ============================================================
+       Sticky side TOC (#mdhv-toc). One item per file, injected.
+       ============================================================ -->
+  <nav id="mdhv-toc" class="mdhv-toc" aria-label="Table of contents">
+    <p class="mdhv-toc__label">Contents</p>
+    <ol>
+      <!-- MDHV:TOC:START -->
+      <li class="mdhv-toc-item"><a href="#mdhv-graph">System map</a></li>
+      <li class="mdhv-toc-item"><a href="#mdhv-findings">Findings</a></li>
+      <li class="mdhv-toc-item"><a href="#mdhv-files">Files</a></li>
+      <!-- MDHV:TOC:END -->
+    </ol>
+  </nav>
+
+  <main class="mdhv-main">
+
+    <!-- ==========================================================
+         Zone 2 — system map (#mdhv-graph).
+         ========================================================== -->
+    <section id="mdhv-graph" class="mdhv-section" aria-labelledby="mdhv-graph-h">
+      <p id="mdhv-graph-h" class="mdhv-zone-label">System map</p>
+      <div class="mdhv-graph">
+        <!-- MDHV:GRAPH:START -->
+        <span class="mdhv-node">example.md</span>
+        <p class="mdhv-graph-caption">
+          Placeholder map. assemble.py replaces this with a chip strip,
+          adjacency matrix, or SVG node-link diagram chosen by node and
+          strong-edge counts. Edges use <span class="mdhv-edge"></span>
+          styling (solid = strong, dashed/faded = weak).
+        </p>
+        <!-- MDHV:GRAPH:END -->
+      </div>
+    </section>
+
+    <!-- ==========================================================
+         Zone 3 — findings (#mdhv-findings). Emitted before files.
+         ========================================================== -->
+    <section id="mdhv-findings" class="mdhv-section" aria-labelledby="mdhv-findings-h">
+      <p id="mdhv-findings-h" class="mdhv-zone-label">Cross-file findings</p>
+      <div class="mdhv-findings">
+        <!-- MDHV:FINDINGS:START -->
+        <div class="mdhv-findings__group">
+          <p class="mdhv-findings__group-label">Contradiction</p>
+          <article class="mdhv-finding mdhv-severity-high">
+            <span class="mdhv-sev">High</span>
+            <p class="mdhv-finding__title">Placeholder finding title</p>
+            <p class="mdhv-finding__desc">
+              assemble.py replaces this region with one card per cross-file
+              finding, grouped by type and sorted by severity.
+            </p>
+            <div class="mdhv-finding__files">
+              <a href="#mdhv-files">example.md</a>
+            </div>
+          </article>
+          <article class="mdhv-finding mdhv-severity-medium">
+            <span class="mdhv-sev">Medium</span>
+            <p class="mdhv-finding__title">Another placeholder</p>
+            <p class="mdhv-finding__desc">Severity is shown by glyph + label, not colour alone.</p>
+          </article>
+          <article class="mdhv-finding mdhv-severity-low">
+            <span class="mdhv-sev">Low</span>
+            <p class="mdhv-finding__title">Low-severity placeholder</p>
+            <p class="mdhv-finding__desc">Muted accent, open-circle glyph.</p>
+          </article>
+        </div>
+        <!-- MDHV:FINDINGS:END -->
+      </div>
+    </section>
+
+    <!-- ==========================================================
+         Zone 4 — per-file stack (#mdhv-files). Fragments injected.
+         ========================================================== -->
+    <section id="mdhv-files" class="mdhv-files" aria-labelledby="mdhv-files-h">
+      <p id="mdhv-files-h" class="mdhv-zone-label">Files</p>
+      <!-- MDHV:FILES:START -->
+      <article class="mdhv-file">
+        <div class="mdhv-file-header">
+          <h2>example.md</h2>
+          <a class="mdhv-src-link" href="#mdhv-top">source</a>
+        </div>
+        <div class="mdhv-keypoints">
+          <strong>Essence.</strong> assemble.py stitches each verified
+          per-file fragment here, in source order.
+          <ul><li>key point one</li><li>key point two</li></ul>
+        </div>
+        <section class="mdhv-section">
+          <h3>A section</h3>
+          <p>Rendered, information-complete content sits in source heading order.</p>
+          <div class="mdhv-contract"><p>verbatim contract text stands here, untouched.</p></div>
+          <details class="mdhv-detail">
+            <summary>Long descriptive prose</summary>
+            <p>Intelligently rendered detail, collapsed by default for scannability.</p>
+          </details>
+        </section>
+      </article>
+      <!-- MDHV:FILES:END -->
+    </section>
+
+  </main>
+
+  <!-- ============================================================
+       Back-to-top control (Phase C). Static chrome; href="#mdhv-top"
+       is an ALLOWED chrome anchor. Hidden until the page is scrolled;
+       the inline script reveals it. .mdhv-totop is a CSS-only hook
+       (not in REQUIRED_CLASS_HOOKS) matching the -finding-files / -badge
+       convention.
+       ============================================================ -->
+  <a class="mdhv-totop" id="mdhv-totop" href="#mdhv-top"
+     aria-label="Back to top" hidden>
+    <span class="mdhv-totop__glyph" aria-hidden="true">&#8593;</span>
+    <span class="mdhv-totop__label">Top</span>
+  </a>
+</div>
+
+<script>
+/* mdHumanViewer shell behaviour — no libraries, no network.
+   Every block is guarded so it is a safe no-op when its target elements
+   are absent (e.g. a TOC-less or graph-less assembly). */
+(function () {
+  "use strict";
+
+  var reduceMotion = false;
+  try {
+    reduceMotion = window.matchMedia &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  } catch (e) { reduceMotion = false; }
+
+  /* ---- Sticky-TOC active highlighting ---------------------------------
+     Observe the file sections and the chrome landmarks; mark the matching
+     .mdhv-toc-item active. Falls back to a scroll handler if
+     IntersectionObserver is unavailable. */
+  function setupTocHighlight() {
+    var toc = document.getElementById("mdhv-toc");
+    if (!toc) { return; }
+    var items = toc.querySelectorAll(".mdhv-toc-item");
+    if (!items.length) { return; }
+
+    // Map target id -> toc item, for hrefs that point within the page.
+    var byId = {};
+    Array.prototype.forEach.call(items, function (item) {
+      var link = item.querySelector('a[href^="#"]');
+      if (!link) { return; }
+      var id = link.getAttribute("href").slice(1);
+      if (id) { byId[id] = item; }
+    });
+
+    var ids = Object.keys(byId);
+    if (!ids.length) { return; }
+
+    function activate(id) {
+      Array.prototype.forEach.call(items, function (it) {
+        it.classList.remove("is-active");
+      });
+      if (byId[id]) { byId[id].classList.add("is-active"); }
+    }
+
+    var targets = [];
+    ids.forEach(function (id) {
+      var el = document.getElementById(id);
+      if (el) { targets.push(el); }
+    });
+    if (!targets.length) { return; }
+
+    if ("IntersectionObserver" in window) {
+      var visible = {};
+      var io = new IntersectionObserver(function (entries) {
+        entries.forEach(function (entry) {
+          visible[entry.target.id] = entry.isIntersecting;
+        });
+        // Pick the first target (document order) currently visible.
+        for (var i = 0; i < targets.length; i++) {
+          if (visible[targets[i].id]) { activate(targets[i].id); break; }
+        }
+      }, { rootMargin: "-15% 0px -70% 0px", threshold: 0 });
+      targets.forEach(function (t) { io.observe(t); });
+    } else {
+      var onScroll = function () {
+        var best = targets[0];
+        for (var i = 0; i < targets.length; i++) {
+          if (targets[i].getBoundingClientRect().top <= 120) { best = targets[i]; }
+        }
+        if (best) { activate(best.id); }
+      };
+      window.addEventListener("scroll", onScroll, { passive: true });
+      onScroll();
+    }
+  }
+
+  /* ---- Sticky-TOC SUB-section active highlighting (Phase C) ------------
+     Extends the active-highlight to the per-file heading sub-nav. Each
+     .mdhv-toc-sub-item links to a #{slug}--{anchor} heading id rendered in
+     the file body; observe those heading elements and mark the matching
+     sub-item active (sharper than file-level alone). Mirrors the file-level
+     highlighter: IntersectionObserver when available, scroll fallback
+     otherwise. Complete no-op when there are no sub-items or none of their
+     targets exist on the page. No network. */
+  function setupTocSubHighlight() {
+    var toc = document.getElementById("mdhv-toc");
+    if (!toc) { return; }
+    var subItems = toc.querySelectorAll(".mdhv-toc-sub-item");
+    if (!subItems.length) { return; }
+
+    var byId = {};
+    Array.prototype.forEach.call(subItems, function (item) {
+      var link = item.querySelector('a[href^="#"]');
+      if (!link) { return; }
+      var id = link.getAttribute("href").slice(1);
+      if (id) { byId[id] = item; }
+    });
+
+    var ids = Object.keys(byId);
+    if (!ids.length) { return; }
+
+    function activate(id) {
+      Array.prototype.forEach.call(subItems, function (it) {
+        it.classList.remove("is-active");
+      });
+      if (byId[id]) { byId[id].classList.add("is-active"); }
+    }
+
+    var targets = [];
+    ids.forEach(function (id) {
+      var el = document.getElementById(id);
+      if (el) { targets.push(el); }
+    });
+    if (!targets.length) { return; }
+
+    /* keep targets in document order so "first visible" is stable */
+    targets.sort(function (a, b) {
+      var pos = a.compareDocumentPosition(b);
+      if (pos & 4) { return -1; }   /* a precedes b */
+      if (pos & 2) { return 1; }    /* a follows b  */
+      return 0;
+    });
+
+    if ("IntersectionObserver" in window) {
+      var visible = {};
+      var io = new IntersectionObserver(function (entries) {
+        entries.forEach(function (entry) {
+          visible[entry.target.id] = entry.isIntersecting;
+        });
+        for (var i = 0; i < targets.length; i++) {
+          if (visible[targets[i].id]) { activate(targets[i].id); break; }
+        }
+      }, { rootMargin: "-12% 0px -74% 0px", threshold: 0 });
+      targets.forEach(function (t) { io.observe(t); });
+    } else {
+      var onScroll = function () {
+        var best = null;
+        for (var i = 0; i < targets.length; i++) {
+          if (targets[i].getBoundingClientRect().top <= 130) { best = targets[i]; }
+        }
+        if (best) { activate(best.id); }
+      };
+      window.addEventListener("scroll", onScroll, { passive: true });
+      onScroll();
+    }
+  }
+
+  /* ---- Back-to-top reveal (Phase C) -----------------------------------
+     Show the .mdhv-totop control once the page is scrolled past roughly one
+     viewport; hide it near the top. The control itself is a plain anchor to
+     #mdhv-top, so it still works (jumps) even if this script never runs.
+     Complete no-op when the control is absent. No network. */
+  function setupBackToTop() {
+    var totop = document.getElementById("mdhv-totop");
+    if (!totop) { return; }
+    totop.hidden = false;            /* hand control of visibility to the class */
+
+    var threshold = 320;
+    function update() {
+      var y = window.pageYOffset ||
+        (document.documentElement && document.documentElement.scrollTop) || 0;
+      var trigger = Math.max(threshold, window.innerHeight * 0.6);
+      if (y > trigger) { totop.classList.add("is-visible"); }
+      else { totop.classList.remove("is-visible"); }
+    }
+    window.addEventListener("scroll", update, { passive: true });
+    window.addEventListener("resize", update, { passive: true });
+    update();
+  }
+
+  /* ---- <details> niceties ---------------------------------------------
+     Honour reduced-motion by neutralising the marker transition, and let
+     a keyboard "Enter" on a summary toggle reliably. No-op without any
+     .mdhv-detail elements. */
+  function setupDetails() {
+    var blocks = document.querySelectorAll(".mdhv-detail");
+    if (!blocks.length) { return; }
+    if (reduceMotion) {
+      Array.prototype.forEach.call(blocks, function (d) {
+        var s = d.querySelector("summary");
+        if (s) { s.style.transition = "none"; }
+      });
+    }
+  }
+
+  function init() {
+    try { setupTocHighlight(); } catch (e) { /* non-fatal */ }
+    try { setupTocSubHighlight(); } catch (e) { /* non-fatal */ }
+    try { setupBackToTop(); } catch (e) { /* non-fatal */ }
+    try { setupDetails(); } catch (e) { /* non-fatal */ }
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", init);
+  } else {
+    init();
+  }
+})();
+</script>
+</body>
+</html>

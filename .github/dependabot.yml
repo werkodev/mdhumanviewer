@@ -1,0 +1,12 @@
+version: 2
+updates:
+  # GitHub Actions only. Do NOT add a pip/uv ecosystem: this repo has zero runtime
+  # dependencies, so a Python updater would have nothing to do and would only churn.
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      actions:
+        patterns: ["*"]
