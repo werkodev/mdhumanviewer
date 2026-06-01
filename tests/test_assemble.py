@@ -1211,6 +1211,115 @@ class Gate1AnchorResolutionTests(AssembleHarness):
         self.assertEqual(report["dangling_anchors"], [])
 
 
+class Gate1HtmlAwareHrefTests(unittest.TestCase):
+    """The gate-1 href scan is HTML-AWARE (the dogfood 14-16 regression fix).
+
+    ``hrefs_in`` collects the ``href`` of REAL ``<a>`` start tags only, filtered
+    to in-page (``#``-prefixed) targets. A literal ``href="#x"`` written inside a
+    ``<code>`` block is character data and an escaped ``&lt;a href="#x"&gt;`` is
+    text — NEITHER is a link, so NEITHER is collected — which is what stops the
+    self-referential corpus (docs that merely quote the anchor scheme) from
+    false-failing gate 1. A genuinely broken ``<a href="#typo">`` in body text
+    (even inside ``<pre>``) IS a real element and IS still collected, so no
+    protection is lost. External/relative hrefs were never in scope and stay out.
+    """
+
+    def setUp(self):
+        sys.path.insert(0, REPO_ROOT)
+        from scripts.assemble import hrefs_in  # re-exported from scripts.gates
+        self.hrefs_in = hrefs_in
+
+    def test_href_inside_code_block_is_not_a_link(self):
+        # `<code>href="#x"</code>` is character data, not an <a> element.
+        self.assertEqual(self.hrefs_in('<code>href="#x"</code>'), [])
+
+    def test_escaped_anchor_example_is_not_a_link(self):
+        # An escaped `<a href="#x">t</a>` rendered as text is not an element.
+        self.assertEqual(
+            self.hrefs_in('&lt;a href="#x"&gt;t&lt;/a&gt;'), [])
+
+    def test_real_in_page_anchor_is_collected(self):
+        self.assertEqual(self.hrefs_in('<a href="#good">x</a>'), ["#good"])
+
+    def test_real_dangling_anchor_still_collected(self):
+        # A genuinely broken in-page anchor is a real <a> element -> still caught.
+        self.assertEqual(self.hrefs_in('<a href="#typo">x</a>'), ["#typo"])
+
+    def test_real_anchor_inside_pre_is_collected(self):
+        # A real <a> inside <pre> is still an element (only escaped/<code> text
+        # is exempt), so it is collected and remains gate-1 enforceable.
+        self.assertEqual(
+            self.hrefs_in('<pre><a href="#inpre">x</a></pre>'), ["#inpre"])
+
+    def test_external_and_relative_hrefs_omitted(self):
+        # In-page scope is preserved: non-#-prefixed hrefs are never returned.
+        self.assertEqual(self.hrefs_in('<a href="https://x">x</a>'), [])
+        self.assertEqual(self.hrefs_in('<a href="rel.html#f">x</a>'), [])
+
+    def test_quote_styles_and_uppercase_tag(self):
+        # Single + double quotes and an uppercase <A HREF> are all real anchors.
+        self.assertEqual(
+            self.hrefs_in("<a href='#sq'>x</a>"), ["#sq"])
+        self.assertEqual(
+            self.hrefs_in('<A HREF="#up">x</A>'), ["#up"])
+
+    def test_entity_in_href_is_decoded(self):
+        # Pin the parser-decode behavior: href="#a&amp;b" -> '#a&b'.
+        self.assertEqual(self.hrefs_in('<a href="#a&amp;b">x</a>'), ["#a&b"])
+
+    def test_anchor_with_name_but_no_href_yields_nothing(self):
+        self.assertEqual(self.hrefs_in('<a name="x">y</a>'), [])
+
+
+class Gate1HtmlAwareRunGatesTests(unittest.TestCase):
+    """End-to-end gate-1 over ``run_gates`` (the exact 14-16 regression): a
+    `<code>`-quoted anchor scheme must NOT register as a dangling anchor, while a
+    real dangling `<a>` in body text still does."""
+
+    def setUp(self):
+        sys.path.insert(0, REPO_ROOT)
+        from scripts.assemble import run_gates
+        self.run_gates = run_gates
+
+    def _structure(self):
+        # One file, slug 's', one heading anchor 'h' -> id space = {'s--h'}.
+        s = file_with_headings("s", "s.md", [heading(1, "Heading", "h")])
+        return {
+            "meta": {"root": ".", "output_language": "source", "file_count": 1},
+            "files": [s],
+            "graph": {"nodes": [make_node("s", "s.md")], "edges": []},
+        }
+
+    def test_code_quoted_anchor_scheme_is_not_dangling(self):
+        # .mdhv-section emits data-src-heading="s--h" (gate 2 clean), and the
+        # body merely QUOTES an anchor inside <code>: gate 1 must not flag it.
+        structure = self._structure()
+        fragment = (
+            '<section class="mdhv-section" id="s--h" data-src-heading="s--h">'
+            '<h3>h</h3>'
+            '<p>use <code>href="#nonexistent--anchor"</code> like so</p>'
+            '</section>'
+        )
+        report = self.run_gates(structure, {}, {"s": fragment})
+        self.assertEqual(report["dangling_anchors"], [])
+        self.assertEqual(report["coverage_gaps"], [])
+
+    def test_real_dangling_anchor_in_body_still_hard_fails(self):
+        # Same coverage-clean section, but now a REAL <a href="#nope"> in body
+        # text: gate 1 must still report it as dangling.
+        structure = self._structure()
+        fragment = (
+            '<section class="mdhv-section" id="s--h" data-src-heading="s--h">'
+            '<h3>h</h3>'
+            '<p>see <a href="#nope">this</a></p>'
+            '</section>'
+        )
+        report = self.run_gates(structure, {}, {"s": fragment})
+        self.assertTrue(report["dangling_anchors"],
+                        "a real dangling in-page <a> must still hard-fail gate 1")
+        self.assertIn("#nope", " ".join(report["dangling_anchors"]))
+
+
 class Gate2CoverageTests(AssembleHarness):
     def test_missing_coverage_hard_fails(self):
         # f0 has TWO headings; fragment only covers one -> coverage gap.

@@ -214,3 +214,54 @@ def data_src_headings_in(fragment_html: str) -> set:
             if tok:
                 out.add(tok)
     return out
+
+
+class _AnchorHrefExtractor(HTMLParser):
+    """Collect the ``href`` of every REAL ``<a>`` start tag, in document order.
+
+    Using an HTMLParser (not a byte regex) is what makes gate 1 HTML-AWARE — and
+    it is the fix for the self-referential-corpus false positives. The rule is
+    strictly *real ``<a>`` element vs. not*: only an actual ``<a>`` START TAG's
+    ``href`` is collected. Documentation that merely *quotes* the anchor scheme
+    therefore no longer trips gate 1, because the two ways it appears are both
+    NON-elements: (1) an escaped example ``&lt;a href="#x"&gt;`` is character
+    data, not a tag; (2) a literal ``href="#x"`` string (e.g. inside a ``<code>``
+    example) is text, not an attribute of an anchor. (Note: an UNescaped, real
+    ``<a href="#x">`` nested inside ``<code>``/``<pre>`` *is* a real element and
+    IS collected — the carve-out is escaping, not the container.) A genuinely
+    broken ``<a href="#typo">`` in body text is a real anchor element, so it is
+    still collected and still fails gate 1 — no protection is lost.
+    """
+
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.hrefs = []  # list[str] — raw href attribute values of <a> tags
+
+    def handle_starttag(self, tag, attrs):
+        if tag.lower() != "a":
+            return
+        for name, value in attrs:
+            if name.lower() == "href" and value:
+                self.hrefs.append(value)
+
+
+def hrefs_in(fragment_html: str) -> list:
+    """All in-page ``href="#..."`` targets of REAL ``<a>`` elements, in order.
+
+    HTML-aware: an ``href="#..."`` substring inside a ``<code>`` block or an
+    escaped ``&lt;a href=...&gt;`` example is NOT a link and is ignored; only an
+    actual ``<a>`` element's ``href`` attribute is returned. Returns only
+    ``#``-prefixed values — in-page anchors are gate 1's scope exactly as before
+    (cross-page / external / relative hrefs were never in scope and stay out).
+    The returned value is the parser-decoded attribute string (HTML entities
+    resolved); gate 1 compares it against the raw ``<slug>--<anchor>`` id space,
+    which is GitHub-style and entity-free, so decoding never changes a real
+    resolution and only normalizes already-dangling exotic hrefs.
+    """
+    parser = _AnchorHrefExtractor()
+    try:
+        parser.feed(fragment_html)
+        parser.close()
+    except Exception:  # pragma: no cover - malformed fragment is non-fatal here
+        pass
+    return [h for h in parser.hrefs if h.startswith("#")]

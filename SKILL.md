@@ -424,7 +424,7 @@ into the fragment, and removes only exact-duplicate contract entries — all
 losslessly (it never snaps a contract across a `not`/`never`/`unless`, never
 drops a real contract, never weakens a gate). It writes the lossless fixes in
 place and prints the JSON report:
-`{auto_closed:{coverage:[],contracts:[]}, genuine_gaps:{coverage:[],contracts:[]}}`.
+`{auto_closed:{coverage:[],contracts:[],anchors:[]}, genuine_gaps:{coverage:[],contracts:[],anchors:[]}}`.
 
 - **Exit 0** (`genuine_gaps` empty) → coverage + lossless contract contracts are
   closed deterministically. Go **straight to S4 assemble** — no re-invoke round.
@@ -435,7 +435,15 @@ place and prints the JSON report:
     → re-invoke that slug's **`mdhv-renderer`**;
   - a `genuine_gaps.contracts` entry (a stored contract not present in the source
     bytes — a semantic judgment, never snapped or dropped automatically) →
-    re-invoke that slug's **`mdhv-verifier`**.
+    re-invoke that slug's **`mdhv-verifier`**;
+  - a `genuine_gaps.anchors` entry (a **real** in-page `<a href="#x">` whose `#x`
+    resolves to no heading id and is not a chrome anchor) → re-invoke that slug's
+    **`mdhv-renderer`** / **`mdhv-verifier`** to fix the offending `href`, mirroring
+    the `dangling_anchors` guidance in S4. `reconcile.py` detects this in S3.5 (gate
+    1 is HTML-aware, in parity with `assemble.py`), so S4's anchor gate passes on the
+    first try in the common case; documentation that merely **quotes** an anchor like
+    `#<slug>--<anchor>` inside `<code>` is **not** a dangling anchor and is left
+    untouched.
 
   Then **re-run `reconcile.py`**. This is **bounded — at most two rounds** for a
   given failing slug. If `genuine_gaps` is still non-empty after that, **stop and

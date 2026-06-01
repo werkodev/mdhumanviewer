@@ -38,10 +38,17 @@ What it does, per file ``<slug>`` that has BOTH ``fragments/<slug>.html`` and
   entry (same normalized text twice) → remove the duplicate from analysis →
   ``auto_closed.contracts``.
 
+* **ANCHORS (gate 1), DETECT-ONLY parity:** mirror ``assemble.py``'s gate-1
+  exactly (same HTML-aware ``gates.hrefs_in`` over REAL ``<a>`` elements, same
+  ``<slug>--<anchor>`` id space, same chrome set). A genuinely dangling in-page
+  anchor is escalated under ``genuine_gaps.anchors`` (never auto-unwrapped), so a
+  clean reconcile guarantees S4's anchor gate passes first try. This closes the
+  prior gap where reconcile ignored gate 1 → exit 0 → assemble then failed on it.
+
 Writes the fixed fragment(s) + analysis (dedupe only) in place, prints the JSON
-report ``{auto_closed:{coverage:[],contracts:[]}, genuine_gaps:{coverage:[],
-contracts:[]}}`` to stdout, and exits 0 iff ``genuine_gaps`` is empty (else
-non-zero).
+report ``{auto_closed:{coverage:[],contracts:[],anchors:[]}, genuine_gaps:
+{coverage:[],contracts:[],anchors:[]}}`` to stdout, and exits 0 iff
+``genuine_gaps`` is empty (else non-zero).
 
 Usage:
     python3 reconcile.py --session SESSION_DIR
@@ -59,21 +66,25 @@ import sys
 # ``python3 scripts/reconcile.py`` invocation (which imports ``scripts.gates``)
 # work too — the SAME shim assemble.py and gates.py use.
 try:
-    from scripts.constants import normalize
+    from scripts.constants import ALLOWED_CHROME_ANCHORS, normalize
     from scripts.gates import (
         concatenated_contract_text,
         contract_present,
         data_src_headings_in,
         file_heading_ids,
+        hrefs_in,
+        structure_heading_ids,
     )
 except ModuleNotFoundError:  # pragma: no cover - import shim for direct runs
     sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-    from scripts.constants import normalize  # noqa: E402
+    from scripts.constants import ALLOWED_CHROME_ANCHORS, normalize  # noqa: E402
     from scripts.gates import (  # noqa: E402
         concatenated_contract_text,
         contract_present,
         data_src_headings_in,
         file_heading_ids,
+        hrefs_in,
+        structure_heading_ids,
     )
 
 
@@ -150,19 +161,29 @@ def _contract_callout(text):
     return f'<div class="mdhv-contract">{html.escape(text)}</div>'
 
 
-def reconcile_file(structure_file, analysis, fragment, src_path):
+def reconcile_file(structure_file, analysis, fragment, src_path,
+                   id_space=None, chrome=frozenset()):
     """Reconcile one file. Returns ``(new_fragment, new_analysis, result)``.
 
     ``result`` is a dict with per-file ``auto_closed`` / ``genuine_gaps`` id +
-    contract lists. ``new_analysis`` is the (possibly dedup-edited) analysis.
-    Pure on its inputs — no disk writes here; the caller writes back only if
-    something changed.
+    contract + anchor lists. ``new_analysis`` is the (possibly dedup-edited)
+    analysis. Pure on its inputs — no disk writes here; the caller writes back
+    only if something changed.
+
+    ``id_space`` (the run-wide ``{<slug>--<anchor>}`` set) and ``chrome`` (the
+    allowed chrome anchors) drive the gate-1 PARITY check: when supplied,
+    reconcile detects the SAME dangling in-page anchors ``assemble.py`` would, so
+    a clean reconcile guarantees S4 passes first try. This pass is DETECT-ONLY —
+    it never mutates the fragment (no silent ``<a>`` unwrap), only escalates a
+    genuinely broken anchor to the verifier/renderer via ``genuine_gaps``.
     """
     slug = structure_file.get("slug", "")
     auto_coverage = []
     gap_coverage = []
     auto_contracts = []
     gap_contracts = []
+    auto_anchors = []
+    gap_anchors = []
 
     # ----- COVERAGE (gate 2), via the source_headings JOIN (NOT text) ---------
     source_ids = file_heading_ids(structure_file)  # {<slug>--<anchor>}
@@ -224,6 +245,27 @@ def reconcile_file(structure_file, analysis, fragment, src_path):
                 f"{slug}: contract not found in source bytes: {needle!r}"
             )
 
+    # ----- ANCHORS (gate 1), DETECT-ONLY parity with assemble -----------------
+    # Mirror assemble.run_gates' gate-1 EXACTLY (same gates.hrefs_in, same id
+    # space, same chrome set) so reconcile sees what assemble sees. We escalate a
+    # genuinely dangling in-page anchor (a real <a href="#x"> that resolves to no
+    # heading id and is not a chrome anchor) instead of mutating the fragment.
+    # After the HTML-aware hrefs_in fix, documented href examples inside <code>
+    # are no longer flagged, so this rarely fires — it is the parity guarantee.
+    if id_space is not None:
+        for href in hrefs_in(fragment):
+            # bare "#" is a no-op anchor, tolerate it exactly as assemble's
+            # gate 1 does (assemble.run_gates) so the two verdicts can't diverge.
+            if href == "#":
+                continue
+            if href in chrome:
+                continue
+            target = href[1:] if href.startswith("#") else href
+            if target not in id_space:
+                gap_anchors.append(
+                    f"{slug}: href {href!r} resolves to no heading id or chrome anchor"
+                )
+
     new_analysis = dict(analysis)
     new_analysis["contracts"] = new_contracts
 
@@ -232,6 +274,8 @@ def reconcile_file(structure_file, analysis, fragment, src_path):
         "gap_coverage": gap_coverage,
         "auto_contracts": auto_contracts,
         "gap_contracts": gap_contracts,
+        "auto_anchors": auto_anchors,
+        "gap_anchors": gap_anchors,
     }
     return fragment, new_analysis, result
 
@@ -241,9 +285,14 @@ def reconcile_session(session_dir):
     structure = _load_json(os.path.join(session_dir, "structure.json"))
     files = structure.get("files") or []
 
+    # Run-wide gate-1 inputs, computed once and shared with every file so
+    # reconcile's anchor check is identical to assemble.run_gates'.
+    id_space = structure_heading_ids(structure)
+    chrome = set(ALLOWED_CHROME_ANCHORS)
+
     report = {
-        "auto_closed": {"coverage": [], "contracts": []},
-        "genuine_gaps": {"coverage": [], "contracts": []},
+        "auto_closed": {"coverage": [], "contracts": [], "anchors": []},
+        "genuine_gaps": {"coverage": [], "contracts": [], "anchors": []},
     }
 
     for f in files:
@@ -266,7 +315,7 @@ def reconcile_session(session_dir):
         src_path = f.get("file_path")
 
         new_fragment, new_analysis, res = reconcile_file(
-            f, analysis, fragment, src_path
+            f, analysis, fragment, src_path, id_space=id_space, chrome=chrome
         )
 
         # Write back ONLY when something actually changed (idempotent on a clean
@@ -279,8 +328,10 @@ def reconcile_session(session_dir):
 
         report["auto_closed"]["coverage"].extend(res["auto_coverage"])
         report["auto_closed"]["contracts"].extend(res["auto_contracts"])
+        report["auto_closed"]["anchors"].extend(res["auto_anchors"])
         report["genuine_gaps"]["coverage"].extend(res["gap_coverage"])
         report["genuine_gaps"]["contracts"].extend(res["gap_contracts"])
+        report["genuine_gaps"]["anchors"].extend(res["gap_anchors"])
 
     return report
 
@@ -308,7 +359,9 @@ def main(argv=None):
     sys.stdout.write("\n")
 
     gaps = report["genuine_gaps"]
-    has_gaps = bool(gaps["coverage"]) or bool(gaps["contracts"])
+    has_gaps = (
+        bool(gaps["coverage"]) or bool(gaps["contracts"]) or bool(gaps["anchors"])
+    )
     return 1 if has_gaps else 0
 
 

@@ -58,6 +58,7 @@ try:
         contract_present,
         data_src_headings_in,
         file_heading_ids,
+        hrefs_in,
         structure_heading_ids,
     )
 except ModuleNotFoundError:  # pragma: no cover - import shim for direct runs
@@ -75,6 +76,7 @@ except ModuleNotFoundError:  # pragma: no cover - import shim for direct runs
         contract_present,
         data_src_headings_in,
         file_heading_ids,
+        hrefs_in,
         structure_heading_ids,
     )
 
@@ -1068,13 +1070,13 @@ def render_files(structure, analyses, fragments_dir, findings=None) -> str:
 # Gate helpers (Task 6)
 # ---------------------------------------------------------------------------
 
-# An in-page href: href="#..." (single or double quoted).
-_HREF_HASH_RE = re.compile(r"""href\s*=\s*['"](#[^'"]*)['"]""", re.IGNORECASE)
-
-
-def hrefs_in(fragment_html: str) -> list:
-    """All in-page ``href="#..."`` targets (with the leading ``#``) in order."""
-    return _HREF_HASH_RE.findall(fragment_html)
+# Gate 1 reads in-page hrefs via the HTML-AWARE ``hrefs_in`` single-sourced in
+# scripts.gates (imported above): it collects href only from REAL ``<a>`` start
+# tags, so an ``href="#..."`` quoted inside a ``<code>`` example or an escaped
+# ``&lt;a href=...&gt;`` is correctly NOT treated as a link. The old raw-byte
+# regex lived here and false-flagged those documentation snippets as dangling
+# anchors on self-referential corpora — replaced, not redefined, to keep one
+# source of truth.
 
 
 def run_gates(structure, analyses, fragments):

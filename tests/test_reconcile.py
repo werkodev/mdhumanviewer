@@ -532,6 +532,176 @@ class ReconcileIdempotencyTests(unittest.TestCase):
             self.assertEqual(after_first, read_fragment(sd, "doc"))
 
 
+class ReconcileAnchorParityTests(unittest.TestCase):
+    """F2 — reconcile gate-1 PARITY (detect-only). Reconcile mirrors assemble's
+    HTML-aware gate-1 over REAL <a href="#..."> elements: it escalates a genuinely
+    dangling in-page anchor under genuine_gaps.anchors WITHOUT mutating the
+    fragment, while documented href examples inside <code> never escalate."""
+
+    # A coverage- and contract-clean single-file session is the isolation base
+    # for every anchor test below; we vary ONLY the fragment's anchor content.
+    _FILES = [{
+        "slug": "doc", "file_path": "doc.md",
+        "headings": [
+            {"level": 1, "text": "Doc", "anchor": "doc"},
+            {"level": 2, "text": "Usage", "anchor": "usage"},
+        ],
+    }]
+    _SOURCE = {"doc.md": "# Doc\n\n## Usage\n\nText.\n"}
+    _ANALYSES = {"doc": {
+        "slug": "doc", "tldr": "x",
+        "sections": [
+            {"id": "doc--doc", "title": "Doc", "kind": "summarized",
+             "source_headings": ["doc"]},
+            {"id": "doc--usage", "title": "Usage", "kind": "summarized",
+             "source_headings": ["usage"]},
+        ],
+        "contracts": [],
+    }}
+
+    def _clean_section_html(self):
+        """Both source ids emitted (coverage clean), no contracts (gate-3 clean).
+        Tests append their own anchor content to isolate the gate-1 signal."""
+        return (
+            '<div class="mdhv-section" id="doc--doc" '
+            'data-src-heading="doc--doc"><h1>Doc</h1></div>'
+            '<div class="mdhv-section" id="doc--usage" '
+            'data-src-heading="doc--usage"><h2>Usage</h2><p>Text.</p>'
+        )
+
+    def _build(self, tmp, fragment_body):
+        return build_session(
+            tmp,
+            files=self._FILES,
+            source_text=self._SOURCE,
+            analyses=self._ANALYSES,
+            fragments={"doc": fragment_body + "</div>"},
+        )
+
+    def test_report_has_anchors_key_under_both_buckets(self):
+        """The reconcile JSON report exposes 'anchors' under BOTH auto_closed and
+        genuine_gaps (the new report shape)."""
+        with tempfile.TemporaryDirectory() as tmp:
+            sd = self._build(tmp, self._clean_section_html())
+            proc = run_reconcile(sd)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            report = json.loads(proc.stdout)
+            self.assertIn("anchors", report["auto_closed"])
+            self.assertIn("anchors", report["genuine_gaps"])
+
+    def test_real_dangling_anchor_is_genuine_gap_and_exits_nonzero(self):
+        """A REAL <a href="#nope"> (#nope is neither a heading id nor a chrome
+        anchor) is recorded under genuine_gaps.anchors AND drives a non-zero exit.
+        Coverage + contracts are clean, isolating the anchor gap."""
+        with tempfile.TemporaryDirectory() as tmp:
+            sd = self._build(
+                tmp,
+                self._clean_section_html()
+                + '<p>See <a href="#nope">this</a>.</p>',
+            )
+            proc = run_reconcile(sd)
+            # The anchor gap alone must flip the exit code.
+            self.assertNotEqual(proc.returncode, 0)
+            report = json.loads(proc.stdout)
+            # Isolation: coverage + contracts stayed clean.
+            self.assertEqual(report["genuine_gaps"]["coverage"], [])
+            self.assertEqual(report["genuine_gaps"]["contracts"], [])
+            # The dangling anchor is escalated under genuine_gaps.anchors.
+            self.assertEqual(len(report["genuine_gaps"]["anchors"]), 1)
+            self.assertIn("#nope", report["genuine_gaps"]["anchors"][0])
+
+    def test_real_dangling_anchor_is_detect_only_fragment_unchanged(self):
+        """DETECT-ONLY: after escalating the dangling anchor, reconcile must NOT
+        unwrap/mutate the fragment — the <a href="#nope"> survives byte-for-byte."""
+        with tempfile.TemporaryDirectory() as tmp:
+            body = (
+                self._clean_section_html()
+                + '<p>See <a href="#nope">this</a>.</p>'
+            )
+            sd = self._build(tmp, body)
+            before = read_fragment(sd, "doc")
+            proc = run_reconcile(sd)
+            self.assertNotEqual(proc.returncode, 0)
+            after = read_fragment(sd, "doc")
+            # Fragment untouched: still carries the real anchor verbatim.
+            self.assertEqual(before, after)
+            self.assertIn('<a href="#nope">', after)
+
+    def test_code_documented_href_is_not_escalated(self):
+        """A documented href inside <code> (NOT a real link) is character data,
+        not an <a> element — so genuine_gaps.anchors stays empty (no false
+        escalation). This is the self-referential-doc regression."""
+        with tempfile.TemporaryDirectory() as tmp:
+            sd = self._build(
+                tmp,
+                self._clean_section_html()
+                + '<p>Write <code>href="#nope"</code> in the link.</p>',
+            )
+            proc = run_reconcile(sd)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            report = json.loads(proc.stdout)
+            self.assertEqual(report["genuine_gaps"]["anchors"], [])
+
+    def test_clean_anchors_parity_with_assemble(self):
+        """PARITY: a session where every in-page <a href> resolves to a real id
+        yields genuine_gaps.anchors == [] AND, on the SAME fragments,
+        assemble.run_gates(...)['dangling_anchors'] == [] — reconcile's verdict
+        matches assemble's."""
+        with tempfile.TemporaryDirectory() as tmp:
+            # Real anchors that resolve: a section id and an allowed chrome anchor.
+            body = (
+                self._clean_section_html()
+                + '<p>Jump to <a href="#doc--usage">usage</a> or '
+                '<a href="#mdhv-toc">contents</a>.</p>'
+            )
+            sd = self._build(tmp, body)
+            proc = run_reconcile(sd)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            report = json.loads(proc.stdout)
+            self.assertEqual(report["genuine_gaps"]["anchors"], [])
+
+            # Now run assemble.run_gates over the SAME on-disk structure +
+            # fragments + analyses (in-process) and assert identical anchor verdict.
+            if REPO_ROOT not in sys.path:
+                sys.path.insert(0, REPO_ROOT)
+            from scripts import assemble  # noqa: E402
+
+            with open(os.path.join(sd, "structure.json"), encoding="utf-8") as fh:
+                structure = json.load(fh)
+            analyses = {"doc": read_analysis(sd, "doc")}
+            fragments = {"doc": read_fragment(sd, "doc")}
+            gates = assemble.run_gates(structure, analyses, fragments)
+            self.assertEqual(gates["dangling_anchors"], [])
+
+    def test_bare_hash_anchor_parity_with_assemble(self):
+        """PARITY (tolerated href): a no-op `<a href="#">` is tolerated by BOTH
+        sides. assemble.run_gates special-cases bare '#'; reconcile must too, or
+        it would needlessly escalate it to a verifier/renderer re-invoke. Pins the
+        blind spot where reconcile was stricter than assemble."""
+        with tempfile.TemporaryDirectory() as tmp:
+            body = (
+                self._clean_section_html()
+                + '<p><a href="#">back to top</a></p>'
+            )
+            sd = self._build(tmp, body)
+
+            proc = run_reconcile(sd)
+            self.assertEqual(proc.returncode, 0, proc.stderr)
+            report = json.loads(proc.stdout)
+            self.assertEqual(report["genuine_gaps"]["anchors"], [])
+
+            if REPO_ROOT not in sys.path:
+                sys.path.insert(0, REPO_ROOT)
+            from scripts import assemble  # noqa: E402
+
+            with open(os.path.join(sd, "structure.json"), encoding="utf-8") as fh:
+                structure = json.load(fh)
+            analyses = {"doc": read_analysis(sd, "doc")}
+            fragments = {"doc": read_fragment(sd, "doc")}
+            gates = assemble.run_gates(structure, analyses, fragments)
+            self.assertEqual(gates["dangling_anchors"], [])
+
+
 class ReconcileErrorTests(unittest.TestCase):
     def test_missing_structure_errors(self):
         with tempfile.TemporaryDirectory() as tmp:

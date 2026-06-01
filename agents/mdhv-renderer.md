@@ -131,8 +131,17 @@ rule below; the S4 gates and the S2b verifier check them.
   normalizes both sides before comparing, so faithful escaping does not break
   the check. A single contract may span multiple `.mdhv-contract` elements
   within this one fragment; gate 3 concatenates this file's `.mdhv-contract`
-  normalized texts in document order before checking the contract is a substring
-  of both the normalized source and the normalized fragment-contract text.
+  normalized texts in document order, then checks the contract's words appear
+  **in order** — as a contiguous run **or** a tight bounded subsequence — within
+  both the normalized source and the normalized fragment-contract text. The gate
+  may skip connective/punctuation words (e.g. the cells of a markdown table row),
+  but the matched span must stay **tight**.
+- Keep each `verbatim_critical` contract a **short, tight span lifted from ONE
+  source location.** **Never** merge or summarize text from multiple sentences,
+  bullets, or distant lines into one contract — a merged or summarized contract
+  overruns the gate's window and fails gate 3. When a "rule" spans several
+  sentences, emit several tight contracts (one per source span), not one long
+  paraphrase.
 
 ### Source link and cross-file links
 
