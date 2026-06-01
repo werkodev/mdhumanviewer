@@ -18,6 +18,7 @@ SCRIPT = os.path.join(REPO_ROOT, "scripts", "parse_structure.py")
 # unit-tested in isolation (alongside the subprocess-driven graph tests).
 sys.path.insert(0, os.path.join(REPO_ROOT, "scripts"))
 import parse_structure  # noqa: E402
+from parse_structure import build_graph, name_tokens_in  # noqa: E402
 
 
 def run(root, *extra_args):
@@ -578,6 +579,214 @@ class RootRelativeInlineRefTests(unittest.TestCase):
         self.assertIsNone(parse_structure._root_relative_target({"raw": "see the docs"}))
         self.assertIsNone(parse_structure._root_relative_target({"raw": ""}))
         self.assertIsNone(parse_structure._root_relative_target({}))
+
+
+class BareNameEdgeTests(unittest.TestCase):
+    """Bare kebab-case inline-code tokens (`mdhv-renderer`) that name another
+    corpus file by STEM (not a path, no extension) yield a LOWEST-priority weak
+    'bare-name match' edge. The hyphen requirement is the core FP guard: a bare
+    generic word (`config`, `skill`) that merely collides with a file stem must
+    NOT fabricate an edge."""
+
+    def test_bare_token_with_matching_file_yields_weak_tentative_edge(self):
+        # skill.md backtick-cites `mdhv-renderer`; agents/mdhv-renderer.md exists
+        # -> a weak edge skill -> agents-mdhv-renderer, tentative, exact reason.
+        with tempfile.TemporaryDirectory() as tmp:
+            write(os.path.join(tmp, "skill.md"),
+                  "# Skill\nDispatch N `mdhv-renderer` agents in parallel.\n")
+            write(os.path.join(tmp, "agents", "mdhv-renderer.md"), "# Renderer\n")
+            out = run(tmp)
+            edges = out["graph"]["edges"]
+            weak = [e for e in edges if e["strength"] == "weak"]
+            self.assertEqual(len(weak), 1)
+            self.assertEqual((weak[0]["from"], weak[0]["to"]),
+                             ("skill", "agents-mdhv-renderer"))
+            self.assertEqual(weak[0]["reason"],
+                             "bare-name match: 'mdhv-renderer' (tentative)")
+
+    def test_bare_generic_word_no_hyphen_makes_no_edge(self):
+        # CORE FP GUARD: a bare `config` (no hyphen) colliding with config.md, and
+        # a bare `skill` colliding with skill.md, must produce NO edge.
+        with tempfile.TemporaryDirectory() as tmp:
+            write(os.path.join(tmp, "config.md"), "# Config\n")
+            write(os.path.join(tmp, "skill.md"), "# Skill\n")
+            write(os.path.join(tmp, "doc.md"),
+                  "# Doc\nSet `config` then run the `skill`.\n")
+            out = run(tmp)
+            self.assertEqual(out["graph"]["edges"], [])
+
+    def test_hyphenated_token_matching_no_file_stem_makes_no_edge(self):
+        # A hyphenated token (`not-a-file`) that matches no file stem -> no edge.
+        with tempfile.TemporaryDirectory() as tmp:
+            write(os.path.join(tmp, "doc.md"),
+                  "# Doc\nThere is no `not-a-file` here.\n")
+            write(os.path.join(tmp, "other.md"), "# Other\n")
+            out = run(tmp)
+            self.assertEqual(out["graph"]["edges"], [])
+
+    def test_hyphenated_identifier_in_prose_not_backticks_makes_no_edge(self):
+        # The SAME hyphenated identifier appearing in PROSE (no backticks) is
+        # NOT inline code -> no token extracted -> no edge. Inline-code only.
+        with tempfile.TemporaryDirectory() as tmp:
+            write(os.path.join(tmp, "skill.md"),
+                  "# Skill\nDispatch the mdhv-renderer agents in parallel.\n")
+            write(os.path.join(tmp, "agents", "mdhv-renderer.md"), "# Renderer\n")
+            out = run(tmp)
+            self.assertEqual(out["graph"]["edges"], [])
+
+    def test_multiword_backtick_token_makes_no_edge(self):
+        # A multi-word backtick token (`hello world`) contains whitespace, so it
+        # fails the pure-stem STEM_RE boundary -> no match, no edge.
+        with tempfile.TemporaryDirectory() as tmp:
+            write(os.path.join(tmp, "doc.md"), "# Doc\nsay `hello world` now\n")
+            write(os.path.join(tmp, "hello-world.md"), "# HW\n")
+            out = run(tmp)
+            self.assertEqual(out["graph"]["edges"], [])
+
+    def test_leading_underscore_token_makes_no_edge(self):
+        # A leading-underscore token (`_internal-x`) fails STEM_RE (must begin
+        # with an alphanumeric) -> no match, no edge.
+        with tempfile.TemporaryDirectory() as tmp:
+            write(os.path.join(tmp, "doc.md"), "# Doc\nthe `_internal-x` flag\n")
+            write(os.path.join(tmp, "_internal-x.md"), "# Internal\n")
+            out = run(tmp)
+            self.assertEqual(out["graph"]["edges"], [])
+
+    def test_self_reference_bare_token_makes_no_self_loop(self):
+        # A file whose own hyphenated stem appears in its own backticks must not
+        # produce a self-loop edge.
+        with tempfile.TemporaryDirectory() as tmp:
+            write(os.path.join(tmp, "mdhv-renderer.md"),
+                  "# Renderer\nThis is the `mdhv-renderer` agent itself.\n")
+            write(os.path.join(tmp, "other.md"), "# Other\n")
+            out = run(tmp)
+            self.assertEqual(out["graph"]["edges"], [])
+
+    def test_strong_edge_preempts_duplicate_bare_name_edge(self):
+        # A pair connected by a STRONG path edge (a real `agents/mdhv-renderer.md`
+        # backtick ref) AND also by a bare `mdhv-renderer` token gets EXACTLY ONE
+        # edge — the strong one — never a duplicate weak bare-name edge.
+        with tempfile.TemporaryDirectory() as tmp:
+            write(os.path.join(tmp, "skill.md"),
+                  "# Skill\nDispatch `agents/mdhv-renderer.md`; the "
+                  "`mdhv-renderer` does the work.\n")
+            write(os.path.join(tmp, "agents", "mdhv-renderer.md"), "# Renderer\n")
+            out = run(tmp)
+            pair_edges = [
+                e for e in out["graph"]["edges"]
+                if (e["from"], e["to"]) == ("skill", "agents-mdhv-renderer")
+            ]
+            self.assertEqual(len(pair_edges), 1)
+            self.assertEqual(pair_edges[0]["strength"], "strong")
+            self.assertEqual(pair_edges[0]["reason"], "inline reference")
+            # No weak edge at all for this run.
+            self.assertEqual(
+                [e for e in out["graph"]["edges"] if e["strength"] == "weak"], [])
+
+    def test_ambiguous_stem_yields_weak_edges_to_both_files(self):
+        # Two files share the same hyphenated stem in different dirs; a third doc
+        # bare-refs it -> a weak (tentative) edge to BOTH.
+        with tempfile.TemporaryDirectory() as tmp:
+            write(os.path.join(tmp, "doc.md"),
+                  "# Doc\nThe `mdhv-renderer` agent runs here.\n")
+            write(os.path.join(tmp, "agents", "mdhv-renderer.md"), "# A\n")
+            write(os.path.join(tmp, "legacy", "mdhv-renderer.md"), "# B\n")
+            out = run(tmp)
+            weak = [e for e in out["graph"]["edges"] if e["strength"] == "weak"]
+            weak_pairs = {(e["from"], e["to"]) for e in weak}
+            self.assertEqual(
+                weak_pairs,
+                {("doc", "agents-mdhv-renderer"), ("doc", "legacy-mdhv-renderer")})
+            for e in weak:
+                self.assertEqual(
+                    e["reason"], "bare-name match: 'mdhv-renderer' (tentative)")
+
+    def test_weak_link_name_match_preempts_bare_name_edge(self):
+        # A pair joined by a WEAK link-derived edge (an unresolved `mdhv-renderer.md`
+        # inline ref -> "inline name match") AND also by a bare `mdhv-renderer`
+        # token must get EXACTLY ONE weak edge that keeps the LINK reason — the
+        # bare-name pass runs last/lowest-priority and must neither duplicate nor
+        # override it (guards the `pair in weak_seen` check + pass ordering).
+        with tempfile.TemporaryDirectory() as tmp:
+            write(os.path.join(tmp, "skill.md"),
+                  "# Skill\nThe `mdhv-renderer.md` sidecar; the `mdhv-renderer` "
+                  "does the work.\n")
+            write(os.path.join(tmp, "agents", "mdhv-renderer.md"), "# Renderer\n")
+            out = run(tmp)
+            pair_edges = [
+                e for e in out["graph"]["edges"]
+                if (e["from"], e["to"]) == ("skill", "agents-mdhv-renderer")
+            ]
+            self.assertEqual(len(pair_edges), 1)
+            self.assertEqual(pair_edges[0]["strength"], "weak")
+            self.assertEqual(
+                pair_edges[0]["reason"],
+                "inline name match: 'mdhv-renderer' (tentative)")
+
+    def test_build_graph_back_compat_without_name_tokens_arg(self):
+        # Calling build_graph(files) with NO name_tokens arg behaves exactly as
+        # before: no crash, no bare-name edges (only strong/weak from links).
+        files = [
+            {"slug": "skill", "file_path": "skill.md", "title": "Skill",
+             "token_estimate": 5,
+             "links": [{"raw": "`mdhv-renderer`", "target": "mdhv-renderer",
+                        "type": "code_ref"}]},
+            {"slug": "agents-mdhv-renderer",
+             "file_path": "agents/mdhv-renderer.md", "title": "Renderer",
+             "token_estimate": 5, "links": []},
+        ]
+        graph = build_graph(files)
+        self.assertEqual(len(graph["nodes"]), 2)
+        self.assertEqual(graph["edges"], [])
+
+    def test_build_graph_explicit_none_and_absent_slug_noop(self):
+        # Explicit name_tokens=None and a stem map keyed by a slug NOT in files[]
+        # both produce no bare-name edges and never raise (the `name_tokens or {}`
+        # guard + iterating over files, not the map).
+        files = [
+            {"slug": "skill", "file_path": "skill.md", "title": "Skill",
+             "token_estimate": 5, "links": []},
+            {"slug": "agents-mdhv-renderer",
+             "file_path": "agents/mdhv-renderer.md", "title": "Renderer",
+             "token_estimate": 5, "links": []},
+        ]
+        self.assertEqual(build_graph(files, None)["edges"], [])
+        self.assertEqual(
+            build_graph(files, {"ghost-slug": {"mdhv-renderer"}})["edges"], [])
+
+    # ---- direct unit tests of name_tokens_in ------------------------------- #
+
+    def test_name_tokens_in_returns_hyphenated_stem(self):
+        self.assertEqual(
+            name_tokens_in("emit N `mdhv-renderer` agents"), {"mdhv-renderer"})
+
+    def test_name_tokens_in_excludes_non_hyphenated_words(self):
+        # `config`/`skill` have no hyphen -> excluded.
+        self.assertEqual(name_tokens_in("set `config` then `skill`"), set())
+
+    def test_name_tokens_in_excludes_dotted_path_token(self):
+        # `a.md` contains a '.' (not a pure stem) -> excluded by STEM_RE.
+        self.assertEqual(name_tokens_in("see `a.md`"), set())
+
+    def test_name_tokens_in_excludes_multiword_token(self):
+        # `hello world` contains whitespace -> excluded.
+        self.assertEqual(name_tokens_in("say `hello world`"), set())
+
+    def test_name_tokens_in_excludes_leading_underscore_token(self):
+        # `_x-y` begins with '_' -> fails STEM_RE (must start alphanumeric).
+        self.assertEqual(name_tokens_in("the `_x-y` flag"), set())
+
+    def test_name_tokens_in_excludes_too_short_token(self):
+        # `ab` is < 3 chars (and has no hyphen) -> excluded.
+        self.assertEqual(name_tokens_in("use `ab` here"), set())
+
+    def test_name_tokens_in_length_gate_isolated(self):
+        # The >=3 length gate fires INDEPENDENTLY of the hyphen gate: a 2-char
+        # hyphenated token (`a-`, matches STEM_RE, has a hyphen) is still excluded
+        # by length, while the 3-char `a-b` is included. Pins the boundary so a
+        # regression loosening the bound to >=2 cannot slip through.
+        self.assertEqual(name_tokens_in("use `a-` here"), set())
+        self.assertEqual(name_tokens_in("use `a-b` here"), {"a-b"})
 
 
 class GroupTests(unittest.TestCase):

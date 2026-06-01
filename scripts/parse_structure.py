@@ -264,6 +264,28 @@ def _looks_like_md_ref(path):
     return bool(CODE_PATH_RE.match(path)) and path.lower().endswith(MD_EXTS)
 
 
+STEM_RE = re.compile(r"^[A-Za-z0-9][\w-]*$")
+
+
+def name_tokens_in(body):
+    """Bare kebab-case inline-code tokens that may name another corpus file.
+
+    Returns the set of lowercased INLINE_CODE_RE tokens that are a pure stem
+    (match STEM_RE -- no '/', '.', or whitespace), contain a hyphen, and are
+    >= 3 chars: e.g. `mdhv-renderer` meaning agents/mdhv-renderer.md. The hyphen
+    requirement keeps real multi-segment references while excluding generic
+    single-word tokens (`config`, `test`, `skill`) that merely collide with a
+    file stem and would fabricate weak edges. Resolved against file stems in
+    build_graph().
+    """
+    out = set()
+    for m in INLINE_CODE_RE.finditer(body):
+        tok = m.group(1).strip().lower()
+        if len(tok) >= 3 and "-" in tok and STEM_RE.match(tok):
+            out.add(tok)
+    return out
+
+
 def _normalize_relative_target(target, source_rel, root):
     """ROOT-normalize a relative link target.
 
@@ -460,13 +482,16 @@ def _name_key(rel_path):
     return base.strip().lower()
 
 
-def build_graph(files):
+def build_graph(files, name_tokens=None):
     """Build nodes + strong/weak edges and fill each link's ``resolved_slug``.
 
     - strong = a ``relative_md`` link whose ROOT-normalized target matches
       another node's ``file_path``.
     - weak   = a name match between two distinct files (marked tentative),
       emitted only when no strong edge already connects the pair.
+
+    ``name_tokens`` (optional) maps slug -> set of candidate bare-name stems,
+    yielding lowest-priority weak bare-name edges; None is a back-compat no-op.
     """
     path_to_slug = {f["file_path"]: f["slug"] for f in files}
     path_to_title = {f["file_path"]: f["title"] for f in files}
@@ -597,6 +622,28 @@ def build_graph(files):
                     "reason": f"inline name match: '{tgt_name}' (tentative)",
                 })
 
+    # Weak edges from bare-name (extension-less, kebab-case) inline-code refs,
+    # resolved against file stems. LOWEST priority: emitted only when no strong
+    # or weak edge already connects the pair. name_tokens maps slug -> set of
+    # candidate stems; None (or a slug absent from it) -> no-op (back-compat).
+    tokens_by_slug = name_tokens or {}
+    for f in files:
+        src_slug = f["slug"]
+        for tok in tokens_by_slug.get(src_slug, ()):
+            for cand_slug in name_to_slugs.get(tok, []):
+                if cand_slug == src_slug:
+                    continue
+                pair = (src_slug, cand_slug)
+                if pair in strong_pairs or pair in weak_seen:
+                    continue
+                weak_seen.add(pair)
+                edges.append({
+                    "from": src_slug,
+                    "to": cand_slug,
+                    "strength": "weak",
+                    "reason": f"bare-name match: '{tok}' (tentative)",
+                })
+
     return {"nodes": nodes, "edges": edges}
 
 
@@ -688,6 +735,7 @@ def main():
     base_counts = Counter(base_slugs)
     seen = {}
     files = []
+    name_tokens_by_slug = {}
     for (rel_path, text), base in zip(records, base_slugs):
         if base_counts[base] > 1:
             seen[base] = seen.get(base, 0) + 1
@@ -698,6 +746,7 @@ def main():
         body = strip_frontmatter(text)
         headings = parse_headings(body)
         links = parse_links(body, rel_path, root)
+        name_tokens_by_slug[slug] = name_tokens_in(body)
         frontmatter = parse_frontmatter(text)
         title = first_h1_title(headings, rel_path)
         language = detect_language(body)
@@ -716,7 +765,7 @@ def main():
         record["links"] = links
         files.append(record)
 
-    graph = build_graph(files)
+    graph = build_graph(files, name_tokens_by_slug)
     groups = build_groups(files)
 
     session = datetime.datetime.now().strftime("%Y-%m-%d_%H-%M")

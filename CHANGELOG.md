@@ -8,6 +8,24 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 - _Nothing yet._
 
+## [0.2.3] - 2026-06-01
+
+### Added
+
+- **Bare-name (extension-less) references now become dependency-graph edges.**
+  Previously the graph only resolved path-like references (`references/schemas.md`);
+  a reference to another corpus file by its **bare kebab-case stem** in backticks
+  (e.g. `` `mdhv-renderer` `` meaning `agents/mdhv-renderer.md`) was dropped, so
+  `SKILL.md` had **no edges to the agents it orchestrates**. `parse_structure.py`
+  now extracts hyphenated stem tokens (`name_tokens_in`) and `build_graph` adds a
+  final lowest-priority **weak/tentative** pass resolving them against file stems —
+  so `skill → {mdhv-renderer, mdhv-verifier, mdhv-crossfile, mdhv-design-author}`
+  now render as dashed edges. Graph-only (does not touch `links[]`/slices). A
+  **hyphen requirement** keeps real multi-segment references while excluding
+  generic single-word tokens (`config`, `test`, `skill`) that would otherwise
+  collide with prose and fabricate edges; the new pass never duplicates or
+  overrides a stronger edge, and `build_graph(files)` stays back-compatible.
+
 ## [0.2.2] - 2026-06-01
 
 ### Fixed
