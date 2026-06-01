@@ -443,7 +443,7 @@ real `<a href="#typo">` (even nested in `<pre>`) still fails gate 1. This lets a
 fragment safely *show* anchor syntax in a code sample without false-failing,
 while still rejecting any dangling live link.
 
-**Reconcile (S3.5) runs the same anchor check, detect-only.** `reconcile.py`
+**Reconcile (S2.5) runs the same anchor check, detect-only.** `reconcile.py`
 runs the **identical** gate-1 check `assemble.py` runs — it resolves
 `gates.hrefs_in(fragment)` against the same `structure.json` id space
 (`gates.structure_heading_ids`) and the same `ALLOWED_CHROME_ANCHORS` chrome
@@ -463,7 +463,7 @@ and `contracts` lists:
 
 `main()` exits non-zero if **any** `genuine_gaps` list — `coverage`,
 `contracts`, **or** `anchors` — is non-empty, routing a genuinely broken anchor
-to a bounded renderer/verifier re-invoke. Because S3.5 detects exactly what S4
+to a bounded renderer/verifier re-invoke. Because S2.5 detects exactly what S4
 would, a clean reconcile **guarantees S4's anchor gate passes first try**.
 
 ### `normalize(s)` (gate 3)

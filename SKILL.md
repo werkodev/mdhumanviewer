@@ -118,7 +118,7 @@ sum-of-files, and there is **no serial whole-corpus pass**.
 | S1 Parse | discover + structure + dependency graph | **Python, 0 LLM** | 0 | `structure.json` |
 | S2 Render | intelligent per-file HTML fragment + analysis sidecar | **N parallel LLM, 1 read each** | 1 | `fragments/<slug>.html`, `analysis/<slug>.json` |
 | S2b Verify | re-read source, check fragment fidelity, fix in place | **N parallel LLM, 1 read each** | 1 | revised `fragments/<slug>.html` + verdict |
-| S3.5 Reconcile | losslessly close coverage + contract gates so assemble passes first try | **Python, 0 LLM** | 0 | fixed `fragments/` + `analysis/` in place |
+| S2.5 Reconcile | losslessly close coverage + contract gates so assemble passes first try | **Python, 0 LLM** | 0 | fixed `fragments/` + `analysis/` in place |
 | S3 Cross-file | contradictions / coverage / signal-noise | **1 LLM, reads only `analysis/`** | 0 | `findings.json` |
 | S4 Assemble | shell + zones + stitch fragments + 4 hard-fail gates | **Python, 0 LLM** | 0 | `overview.html` + JSON report |
 | S5 Report | signpost in chat | skill | 0 | chat message |
@@ -375,36 +375,7 @@ python3 ${CLAUDE_PLUGIN_ROOT}/scripts/mark_step.py ${SESSION} verify done
 
 ---
 
-## S3 — Cross-file (1 subagent, reads only analysis/)
-
-Invoke the **`mdhv-crossfile`** subagent **once**. It reads **only**
-`analysis/*.json` plus `structure.json` — it **never** re-reads the source `.md`
-(that read-once guarantee is the whole point) — and writes the cross-file
-findings.
-
-> Use the `mdhv-crossfile` subagent.
-> ANALYSIS_DIR = `${SESSION}/analysis`
-> STRUCTURE_PATH = `${SESSION}/structure.json`
-> FINDINGS_OUT = `${SESSION}/findings.json`
-> Apply the three optics and write the root-object findings.json.
-
-It writes the **root object** `findings.json` = `{"cross_file_findings": [...]}`
-(an empty run emits `{"cross_file_findings": []}`, never a bare `[]` or `{}`).
-**Validate it with `check_session.py`** (its `bad_findings` flag is true unless
-`findings.json` is a well-formed root object carrying a `cross_file_findings`
-list) — do **not** write an ad-hoc parse loop:
-```bash
-python3 ${CLAUDE_PLUGIN_ROOT}/scripts/check_session.py ${SESSION}
-```
-On `bad_findings`, re-invoke `mdhv-crossfile` once, then re-run
-`check_session.py`. Mark the step done with the script:
-```bash
-python3 ${CLAUDE_PLUGIN_ROOT}/scripts/mark_step.py ${SESSION} crossfile done
-```
-
----
-
-## S3.5 — Reconcile (deterministic, no LLM)
+## S2.5 — Reconcile (deterministic, no LLM)
 
 Run **after verify (S2b), before crossfile/assemble** — `reconcile.py` is a
 sanctioned plugin script, **not** improvisation (it is *not* `python3 -c` and it
@@ -439,7 +410,7 @@ place and prints the JSON report:
   - a `genuine_gaps.anchors` entry (a **real** in-page `<a href="#x">` whose `#x`
     resolves to no heading id and is not a chrome anchor) → re-invoke that slug's
     **`mdhv-renderer`** / **`mdhv-verifier`** to fix the offending `href`, mirroring
-    the `dangling_anchors` guidance in S4. `reconcile.py` detects this in S3.5 (gate
+    the `dangling_anchors` guidance in S4. `reconcile.py` detects this in S2.5 (gate
     1 is HTML-aware, in parity with `assemble.py`), so S4's anchor gate passes on the
     first try in the common case; documentation that merely **quotes** an anchor like
     `#<slug>--<anchor>` inside `<code>` is **not** a dangling anchor and is left
@@ -459,6 +430,35 @@ belt-and-suspenders. There is no manifest step for reconcile — it sits between
 
 ---
 
+## S3 — Cross-file (1 subagent, reads only analysis/)
+
+Invoke the **`mdhv-crossfile`** subagent **once**. It reads **only**
+`analysis/*.json` plus `structure.json` — it **never** re-reads the source `.md`
+(that read-once guarantee is the whole point) — and writes the cross-file
+findings.
+
+> Use the `mdhv-crossfile` subagent.
+> ANALYSIS_DIR = `${SESSION}/analysis`
+> STRUCTURE_PATH = `${SESSION}/structure.json`
+> FINDINGS_OUT = `${SESSION}/findings.json`
+> Apply the three optics and write the root-object findings.json.
+
+It writes the **root object** `findings.json` = `{"cross_file_findings": [...]}`
+(an empty run emits `{"cross_file_findings": []}`, never a bare `[]` or `{}`).
+**Validate it with `check_session.py`** (its `bad_findings` flag is true unless
+`findings.json` is a well-formed root object carrying a `cross_file_findings`
+list) — do **not** write an ad-hoc parse loop:
+```bash
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/check_session.py ${SESSION}
+```
+On `bad_findings`, re-invoke `mdhv-crossfile` once, then re-run
+`check_session.py`. Mark the step done with the script:
+```bash
+python3 ${CLAUDE_PLUGIN_ROOT}/scripts/mark_step.py ${SESSION} crossfile done
+```
+
+---
+
 ## S4 — Assemble (deterministic, no LLM)
 
 Run the assembler. Use the `${CLAUDE_PLUGIN_ROOT}` dollar-brace Bash form and
@@ -473,6 +473,12 @@ python3 ${CLAUDE_PLUGIN_ROOT}/scripts/assemble.py \
   --out         ${SESSION}/overview.html \
   --manifest    ${SESSION}/manifest.json
 ```
+
+Run it with the **current working directory at the analyzed ROOT** (where you
+parsed the corpus): gate 3 reads each file's source bytes via its `file_path`,
+resolved relative to CWD. (`assemble.py` carries a `sys.path` shim so a direct
+`python3 …/scripts/assemble.py` still imports `scripts.constants` from any CWD —
+so only the *working directory* needs to be the ROOT, not the script location.)
 
 Consume **only the stdout JSON report and the exit code**. The report shape is:
 `{files, sections, findings, graph_mode, dangling_anchors:[], coverage_gaps:[],

@@ -44,7 +44,7 @@ class TestPluginJson(unittest.TestCase):
 
     def test_version(self):
         data = load(PLUGIN_JSON)
-        self.assertEqual(data["version"], "0.2.1")
+        self.assertEqual(data["version"], "0.2.2")
 
     def test_author(self):
         data = load(PLUGIN_JSON)

@@ -286,6 +286,53 @@ def _normalize_relative_target(target, source_rel, root):
     return norm
 
 
+def _root_relative_target(link):
+    """Best-effort ROOT-relative path candidate recovered from a link's token.
+
+    The stored ``target`` is resolved relative to the SOURCE file's directory
+    (see :func:`_normalize_relative_target`). But a bare path like
+    ``references/schemas.md`` written *from a subdirectory doc* (e.g.
+    ``agents/mdhv-renderer.md``) is frequently meant relative to ROOT, not to the
+    source dir — there is no ``agents/references/`` directory, the author means
+    the repo-root ``references/``. This recovers that ROOT-relative reading from
+    the link's original ``raw`` token so :func:`build_graph` can try it as a
+    fallback when the source-relative ``target`` matches no node. Returns a
+    ROOT-relative POSIX path, or ``None`` if no usable token / it escapes ROOT /
+    it has no directory component.
+
+    Crucially, the fallback fires ONLY for a token that carries a **directory
+    component** (a ``/``): ``references/schemas.md`` written from ``agents/`` is a
+    deliberate ROOT-relative path, but a BARE filename like ``README.md`` is not —
+    promoting a bare name to a strong edge would inflate what is correctly only a
+    weak/tentative same-name match into a false "direct link". A bare token
+    returns ``None`` here and stays a weak name-match in :func:`build_graph`.
+    """
+    raw = (link.get("raw") or "").strip()
+    tok = None
+    if raw.startswith("`") and raw.endswith("`"):
+        tok = raw.strip("`").strip()
+    else:
+        m = re.search(r"\]\(\s*([^)]+?)\s*\)", raw)  # [text](dest "optional title")
+        if m:
+            tok = m.group(1).strip()
+    if not tok:
+        return None
+    # Keep only the link destination: drop a markdown title (``dest "Title"``).
+    parts = tok.split()
+    tok = parts[0] if parts else ""
+    tok = tok.split("#", 1)[0].split("?", 1)[0].strip()
+    if not tok:
+        return None
+    norm = os.path.normpath(tok).replace(os.sep, "/")
+    if norm in (".", "") or norm == ".." or norm.startswith("../"):
+        return None
+    # Bare filename (no directory) -> NOT a deliberate ROOT path; leave it to the
+    # weak bare-name matcher so we never inflate a tentative match to strong.
+    if "/" not in norm:
+        return None
+    return norm
+
+
 def parse_links(body, source_rel, root):
     """Extract and classify outbound links from a markdown body.
 
@@ -438,9 +485,17 @@ def build_graph(files):
         for link in f["links"]:
             if link["type"] != "relative_md":
                 continue
+            # Match the source-dir-relative target first; fall back to the
+            # ROOT-relative reading of the original token (a bare path written
+            # from a subdir doc that points at a repo-root file).
             target = link["target"]
-            if target in path_to_slug:
-                tgt_slug = path_to_slug[target]
+            matched = target if target in path_to_slug else None
+            if matched is None:
+                alt = _root_relative_target(link)
+                if alt is not None and alt in path_to_slug:
+                    matched = alt
+            if matched is not None:
+                tgt_slug = path_to_slug[matched]
                 link["resolved_slug"] = tgt_slug
                 if tgt_slug != src_slug:
                     pair = (src_slug, tgt_slug)
@@ -463,9 +518,18 @@ def build_graph(files):
         for link in f["links"]:
             if link["type"] != "md_ref":
                 continue
+            # Exact source-dir-relative path first, then the ROOT-relative
+            # reading of the backtick token (e.g. `references/schemas.md` cited
+            # from an agents/ doc resolves to the repo-root references/schemas.md).
             target = link["target"]
-            if target in path_to_slug:
-                tgt_slug = path_to_slug[target]
+            matched = target if target in path_to_slug else None
+            if matched is None:
+                alt = _root_relative_target(link)
+                if alt is not None and alt in path_to_slug:
+                    matched = alt
+            if matched is not None:
+                tgt_slug = path_to_slug[matched]
+                link["resolved_slug"] = tgt_slug
                 if tgt_slug != src_slug:
                     pair = (src_slug, tgt_slug)
                     if pair not in strong_pairs:
@@ -515,9 +579,9 @@ def build_graph(files):
         for link in f["links"]:
             if link["type"] != "md_ref":
                 continue
+            if "resolved_slug" in link:
+                continue  # already a strong inline edge (exact or ROOT-relative)
             target = link["target"]
-            if target in path_to_slug:
-                continue  # already a strong inline edge
             tgt_name = _name_key(target)
             for cand_slug in name_to_slugs.get(tgt_name, []):
                 if cand_slug == src_slug:

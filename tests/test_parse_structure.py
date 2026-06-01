@@ -14,6 +14,11 @@ import unittest
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SCRIPT = os.path.join(REPO_ROOT, "scripts", "parse_structure.py")
 
+# Import the module directly so the ROOT-relative recovery helper can be
+# unit-tested in isolation (alongside the subprocess-driven graph tests).
+sys.path.insert(0, os.path.join(REPO_ROOT, "scripts"))
+import parse_structure  # noqa: E402
+
 
 def run(root, *extra_args):
     """Invoke parse_structure.py against `root`, return parsed JSON stdout."""
@@ -350,6 +355,229 @@ class InlineMdRefEdgeTests(unittest.TestCase):
                      if (e["from"], e["to"]) == ("a", "b")]
             self.assertEqual(len(edges), 1)
             self.assertEqual(edges[0]["strength"], "strong")
+
+
+class RootRelativeInlineRefTests(unittest.TestCase):
+    """A backtick (or [](link)) ref written from a *subdirectory* doc is
+    frequently meant relative to ROOT, not to the source dir: `references/schemas.md`
+    cited from `agents/mdhv-renderer.md` means the repo-root `references/schemas.md`
+    (there is no `agents/references/`). build_graph now recovers that ROOT-relative
+    reading via `_root_relative_target` as a fallback when the source-dir-relative
+    target matches no node, yielding a STRONG edge with a filled `resolved_slug`
+    instead of a demoted weak/bare-name match (Finding 3)."""
+
+    def test_subdir_inline_ref_resolves_root_relative_to_strong_edge(self):
+        # The exact Finding-3 scenario: an agents/ doc backtick-cites the
+        # repo-root references/schemas.md. Source-dir-relative would be
+        # `agents/references/schemas.md` (no node); ROOT-relative resolves it.
+        with tempfile.TemporaryDirectory() as tmp:
+            write(os.path.join(tmp, "agents", "mdhv-renderer.md"),
+                  "# Renderer\nThe class vocabulary lives in `references/schemas.md`.\n")
+            write(os.path.join(tmp, "references", "schemas.md"), "# Schemas\n")
+            out = run(tmp)
+            renderer = by_slug(out)["agents-mdhv-renderer"]
+            md_refs = [l for l in renderer["links"] if l["type"] == "md_ref"]
+            self.assertEqual(len(md_refs), 1)
+            # The link's resolved_slug is filled by the ROOT-relative join.
+            self.assertEqual(md_refs[0]["resolved_slug"], "references-schemas")
+            strong = [e for e in out["graph"]["edges"] if e["strength"] == "strong"]
+            self.assertEqual(len(strong), 1)
+            self.assertEqual((strong[0]["from"], strong[0]["to"]),
+                             ("agents-mdhv-renderer", "references-schemas"))
+            self.assertEqual(strong[0]["reason"], "inline reference")
+            # And NOT demoted to a weak/bare-name match.
+            self.assertEqual(
+                [e for e in out["graph"]["edges"] if e["strength"] == "weak"], [])
+
+    def test_multiple_agent_docs_each_get_strong_edge_to_schemas(self):
+        # The proven case: both agents/mdhv-renderer.md and agents/mdhv-verifier.md
+        # gain a strong edge to references-schemas via the ROOT-relative recovery.
+        with tempfile.TemporaryDirectory() as tmp:
+            write(os.path.join(tmp, "agents", "mdhv-renderer.md"),
+                  "# Renderer\nemit against `references/schemas.md`\n")
+            write(os.path.join(tmp, "agents", "mdhv-verifier.md"),
+                  "# Verifier\ncheck contracts per `references/schemas.md`\n")
+            write(os.path.join(tmp, "references", "schemas.md"), "# Schemas\n")
+            out = run(tmp)
+            strong_pairs = {
+                (e["from"], e["to"])
+                for e in out["graph"]["edges"] if e["strength"] == "strong"
+            }
+            self.assertIn(("agents-mdhv-renderer", "references-schemas"), strong_pairs)
+            self.assertIn(("agents-mdhv-verifier", "references-schemas"), strong_pairs)
+            for slug in ("agents-mdhv-renderer", "agents-mdhv-verifier"):
+                md_refs = [l for l in by_slug(out)[slug]["links"]
+                           if l["type"] == "md_ref"]
+                self.assertEqual([l["resolved_slug"] for l in md_refs],
+                                 ["references-schemas"])
+
+    def test_subdir_relative_md_link_resolves_root_relative_to_strong_edge(self):
+        # The same ROOT-relative recovery applies to a [text](file.md) relative_md
+        # link from a subdir doc, not only to inline backtick refs.
+        with tempfile.TemporaryDirectory() as tmp:
+            write(os.path.join(tmp, "agents", "mdhv-renderer.md"),
+                  "# Renderer\nSee [schemas](references/schemas.md).\n")
+            write(os.path.join(tmp, "references", "schemas.md"), "# Schemas\n")
+            out = run(tmp)
+            renderer = by_slug(out)["agents-mdhv-renderer"]
+            rel = next(l for l in renderer["links"] if l["type"] == "relative_md")
+            self.assertEqual(rel["resolved_slug"], "references-schemas")
+            strong = [e for e in out["graph"]["edges"] if e["strength"] == "strong"]
+            self.assertEqual(len(strong), 1)
+            self.assertEqual(strong[0]["reason"], "direct relative link")
+            self.assertEqual((strong[0]["from"], strong[0]["to"]),
+                             ("agents-mdhv-renderer", "references-schemas"))
+
+    def test_source_relative_match_still_wins_no_root_fallback_needed(self):
+        # No regression: when the source-dir-relative reading already matches a
+        # node, that match is used directly (the ROOT-relative fallback is only a
+        # fallback). agents/a.md citing `agents/b.md` resolves source-relative.
+        with tempfile.TemporaryDirectory() as tmp:
+            write(os.path.join(tmp, "agents", "a.md"),
+                  "# A\nsee sibling `agents/b.md`\n")
+            write(os.path.join(tmp, "agents", "b.md"), "# B\n")
+            out = run(tmp)
+            a = by_slug(out)["agents-a"]
+            md_refs = [l for l in a["links"] if l["type"] == "md_ref"]
+            self.assertEqual(md_refs[0]["resolved_slug"], "agents-b")
+            strong = [e for e in out["graph"]["edges"] if e["strength"] == "strong"]
+            self.assertEqual(len(strong), 1)
+            self.assertEqual((strong[0]["from"], strong[0]["to"]),
+                             ("agents-a", "agents-b"))
+
+    def test_source_relative_wins_when_both_source_and_root_targets_exist(self):
+        # The ROOT-relative reading is ONLY a fallback. When BOTH a
+        # source-dir-relative twin (agents/references/schemas.md) AND a repo-root
+        # references/schemas.md exist, a `references/schemas.md` ref from agents/
+        # must resolve to the source-dir-relative file, never to the root one.
+        with tempfile.TemporaryDirectory() as tmp:
+            write(os.path.join(tmp, "agents", "a.md"),
+                  "# A\nthe vocabulary lives in `references/schemas.md`\n")
+            write(os.path.join(tmp, "agents", "references", "schemas.md"),
+                  "# Agents schemas\n")
+            write(os.path.join(tmp, "references", "schemas.md"),
+                  "# Root schemas\n")
+            out = run(tmp)
+            a = by_slug(out)["agents-a"]
+            md_refs = [l for l in a["links"] if l["type"] == "md_ref"]
+            self.assertEqual(len(md_refs), 1)
+            # Source-dir-relative reading (agents/references/schemas.md) wins,
+            # so the resolved slug is the agents-scoped one, NOT the root twin.
+            self.assertEqual(md_refs[0]["resolved_slug"], "agents-references-schemas")
+            strong = [e for e in out["graph"]["edges"] if e["strength"] == "strong"]
+            self.assertEqual(len(strong), 1)
+            self.assertEqual((strong[0]["from"], strong[0]["to"]),
+                             ("agents-a", "agents-references-schemas"))
+            # Crucially, the root-relative fallback did NOT also fire to the
+            # repo-root references/schemas.md.
+            self.assertNotIn(
+                ("agents-a", "references-schemas"),
+                {(e["from"], e["to"]) for e in strong})
+
+    def test_root_relative_md_ref_yields_single_edge_no_weak_duplicate(self):
+        # A resolved ROOT-relative md_ref must produce EXACTLY ONE edge for the
+        # pair (the strong one) — the bare-name twin (references/schemas.md and
+        # the node share the name 'schemas') must NOT also spawn a weak
+        # 'inline name match' duplicate once the link is strongly resolved.
+        with tempfile.TemporaryDirectory() as tmp:
+            write(os.path.join(tmp, "agents", "mdhv-renderer.md"),
+                  "# Renderer\nemit against `references/schemas.md`\n")
+            write(os.path.join(tmp, "references", "schemas.md"), "# Schemas\n")
+            out = run(tmp)
+            pair_edges = [
+                e for e in out["graph"]["edges"]
+                if (e["from"], e["to"]) == ("agents-mdhv-renderer", "references-schemas")
+            ]
+            self.assertEqual(len(pair_edges), 1)
+            self.assertEqual(pair_edges[0]["strength"], "strong")
+            self.assertEqual(pair_edges[0]["reason"], "inline reference")
+            # No weak edge at all for this run (the strong resolution consumed it).
+            self.assertEqual(
+                [e for e in out["graph"]["edges"] if e["strength"] == "weak"], [])
+
+    def test_root_relative_candidate_matching_no_node_makes_no_strong_edge(self):
+        # A subdir backtick ref whose ROOT-relative reading still matches no node
+        # (and no bare-name twin exists) yields NO edge at all — the fallback only
+        # fires on a real match, it never invents one.
+        with tempfile.TemporaryDirectory() as tmp:
+            write(os.path.join(tmp, "agents", "a.md"),
+                  "# A\nmissing `references/nope.md`\n")
+            write(os.path.join(tmp, "references", "schemas.md"), "# Schemas\n")
+            out = run(tmp)
+            a = by_slug(out)["agents-a"]
+            md_refs = [l for l in a["links"] if l["type"] == "md_ref"]
+            self.assertEqual(len(md_refs), 1)
+            self.assertNotIn("resolved_slug", md_refs[0])
+            self.assertEqual(out["graph"]["edges"], [])
+
+    def test_bare_filename_ref_is_not_promoted_to_strong_edge(self):
+        # A BARE filename (no directory component) from a subdir doc must NOT get
+        # the ROOT-relative fallback: it stays a weak/tentative same-name match to
+        # a root file, never a false strong "direct link". Guards the over-reach
+        # the adversarial review caught.
+        with tempfile.TemporaryDirectory() as tmp:
+            write(os.path.join(tmp, "pkg", "module.md"),
+                  "# Module\nsee `README.md` for setup\n")
+            write(os.path.join(tmp, "README.md"), "# Readme\n")
+            out = run(tmp)
+            m = by_slug(out)["pkg-module"]
+            md_refs = [l for l in m["links"] if l["type"] == "md_ref"]
+            self.assertEqual(len(md_refs), 1)
+            # Bare name is NOT strong-resolved by the fallback...
+            self.assertNotIn("resolved_slug", md_refs[0])
+            edges = {(e["from"], e["to"]): e["strength"] for e in out["graph"]["edges"]}
+            # ...and any edge to the root README stays WEAK, never strong.
+            self.assertNotEqual(edges.get(("pkg-module", "readme")), "strong")
+            if ("pkg-module", "readme") in edges:
+                self.assertEqual(edges[("pkg-module", "readme")], "weak")
+
+    def test_relative_md_link_with_title_resolves_root_relative_strong(self):
+        # A markdown link carrying a title — [s](references/schemas.md "Doc") —
+        # from a subdir must still resolve ROOT-relative to a STRONG edge: the
+        # title must be stripped from the destination before matching. Guards the
+        # title-attribute leak the review flagged.
+        with tempfile.TemporaryDirectory() as tmp:
+            write(os.path.join(tmp, "agents", "a.md"),
+                  '# A\nsee [schemas](references/schemas.md "Schema doc")\n')
+            write(os.path.join(tmp, "references", "schemas.md"), "# Schemas\n")
+            out = run(tmp)
+            a = by_slug(out)["agents-a"]
+            rel = [l for l in a["links"] if l["type"] == "relative_md"]
+            self.assertEqual(len(rel), 1)
+            self.assertEqual(rel[0].get("resolved_slug"), "references-schemas")
+            strong = {(e["from"], e["to"]) for e in out["graph"]["edges"]
+                      if e["strength"] == "strong"}
+            self.assertIn(("agents-a", "references-schemas"), strong)
+
+    # ---- direct unit tests of the recovery helper -------------------------- #
+
+    def test_helper_recovers_backtick_token_root_relative(self):
+        link = {"raw": "`references/schemas.md`", "target": "agents/references/schemas.md",
+                "type": "md_ref"}
+        self.assertEqual(parse_structure._root_relative_target(link),
+                         "references/schemas.md")
+
+    def test_helper_recovers_markdown_link_token_root_relative(self):
+        link = {"raw": "[schemas](references/schemas.md)",
+                "target": "agents/references/schemas.md", "type": "relative_md"}
+        self.assertEqual(parse_structure._root_relative_target(link),
+                         "references/schemas.md")
+
+    def test_helper_strips_fragment_and_normalizes_dot_segments(self):
+        link = {"raw": "`./references/../references/schemas.md#x`", "type": "md_ref"}
+        self.assertEqual(parse_structure._root_relative_target(link),
+                         "references/schemas.md")
+
+    def test_helper_rejects_token_escaping_root(self):
+        # A token that climbs above ROOT cannot be a ROOT-relative node key.
+        link = {"raw": "`../outside.md`", "type": "md_ref"}
+        self.assertIsNone(parse_structure._root_relative_target(link))
+
+    def test_helper_returns_none_when_no_usable_token(self):
+        # Bare prose with no backtick path / [](link) yields no candidate.
+        self.assertIsNone(parse_structure._root_relative_target({"raw": "see the docs"}))
+        self.assertIsNone(parse_structure._root_relative_target({"raw": ""}))
+        self.assertIsNone(parse_structure._root_relative_target({}))
 
 
 class GroupTests(unittest.TestCase):

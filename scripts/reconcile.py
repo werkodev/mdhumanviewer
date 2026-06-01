@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""reconcile.py — Stage S3.5 (deterministic, no LLM).
+"""reconcile.py — Stage S2.5 (deterministic, no LLM).
 
 Runs AFTER verify and BEFORE assemble, per selected file. It closes the two
 *mechanical* gate properties — gate 2 (coverage) and gate 3 (contract fidelity) —
@@ -337,7 +337,7 @@ def reconcile_session(session_dir):
 
 
 def main(argv=None):
-    ap = argparse.ArgumentParser(description="Deterministic reconcile (S3.5).")
+    ap = argparse.ArgumentParser(description="Deterministic reconcile (S2.5).")
     ap.add_argument("--session", required=True, help="Path to the session dir.")
     args = ap.parse_args(argv)
 

@@ -8,6 +8,40 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 - _Nothing yet._
 
+## [0.2.2] - 2026-06-01
+
+### Fixed
+
+- **Dependency-graph edges now resolve ROOT-relative backtick refs.**
+  `build_graph()` in `scripts/parse_structure.py` reads a backtick reference
+  ROOT-relative (via a new `_root_relative_target` helper), so a `` `references/schemas.md` ``
+  cited from an `agents/` doc now resolves to the repo-root `references/schemas.md`
+  and yields a **strong** edge (`resolved_slug` filled) instead of a weak
+  "inline name match". The renderer/verifier → schemas coupling is no longer
+  under-stated: `agents/mdhv-renderer` and `agents/mdhv-verifier` now carry strong
+  edges to `references/schemas.md`.
+
+### Changed
+
+- **Reconcile stage renumbered S3.5 → S2.5 to match where it actually runs.**
+  The deterministic Reconcile stage runs **after S2b Verify and before S3
+  Cross-file** (verify → reconcile → cross-file → assemble), but its detailed
+  `SKILL.md` section was numbered `S3.5` and placed after the Cross-file section.
+  It is now numbered `S2.5` everywhere and its `SKILL.md` detailed section is
+  reordered to sit before the Cross-file section. **No execution-order or logic
+  change** — only docs/labels now match the real run order.
+
+### Removed
+
+- **`CLAUDE.md` dropped from the plugin.** It was a maintainer/dev guide (loaded
+  only when working *in* the repo, never for installed-plugin users) whose pipeline
+  section merely duplicated `SKILL.md`. The full S0–S5 flow already lives in
+  `SKILL.md` (the authoritative runtime contract); the one runtime invariant it
+  uniquely held — *`assemble.py` runs with CWD at the analyzed ROOT* — is folded
+  into `SKILL.md` S4, and the dev-only content (tests, conventions, source
+  invariants) moved to a new **`CONTRIBUTING.md`**. README's "Architecture" /
+  pipeline-contract links now point to `SKILL.md`.
+
 ## [0.2.1] - 2026-06-01
 
 ### Fixed

@@ -440,13 +440,14 @@ class TestDeterministicHelperWiring(unittest.TestCase):
 
 
 class TestReconcileWiring(unittest.TestCase):
-    """Pin the Phase-2 deterministic reconcile (S3.5) into the orchestrator prose.
+    """Pin the Phase-2 deterministic reconcile (S2.5) into the orchestrator prose.
 
-    `reconcile.py` runs after verify and before crossfile/assemble; it closes the
-    coverage + lossless-contract gate properties so assemble passes on the FIRST
-    attempt. SKILL.md must reference it via the ${CLAUDE_PLUGIN_ROOT}/scripts/
-    dollar-brace form, the script must exist on disk, and the reconcile step must
-    be positioned before the assemble step in the document.
+    `reconcile.py` runs after verify (S2b) and before crossfile (S3)/assemble
+    (S4); it closes the coverage + lossless-contract gate properties so assemble
+    passes on the FIRST attempt. SKILL.md must reference it via the
+    ${CLAUDE_PLUGIN_ROOT}/scripts/ dollar-brace form, the script must exist on
+    disk, and the reconcile step must be positioned before the cross-file and
+    assemble steps in the document.
     """
 
     def test_reconcile_script_exists_on_disk(self):
@@ -475,7 +476,7 @@ class TestReconcileWiring(unittest.TestCase):
 
     def test_reconcile_step_precedes_assemble_step(self):
         """The reconcile step must be positioned BEFORE the assemble step in the
-        document (S3.5 runs before S4), so the orchestrator reconciles the gate
+        document (S2.5 runs before S4), so the orchestrator reconciles the gate
         properties before assembling.
 
         We anchor on the step section headers (not the first incidental mention
@@ -485,13 +486,13 @@ class TestReconcileWiring(unittest.TestCase):
         text = _read(SKILL_PATH)
 
         # The reconcile section header must precede the assemble section header.
-        reconcile_hdr = text.find("## S3.5 — Reconcile")
+        reconcile_hdr = text.find("## S2.5 — Reconcile")
         assemble_hdr = text.find("## S4 — Assemble")
-        self.assertNotEqual(reconcile_hdr, -1, "SKILL.md has no '## S3.5 — Reconcile' section")
+        self.assertNotEqual(reconcile_hdr, -1, "SKILL.md has no '## S2.5 — Reconcile' section")
         self.assertNotEqual(assemble_hdr, -1, "SKILL.md has no '## S4 — Assemble' section")
         self.assertLess(
             reconcile_hdr, assemble_hdr,
-            "SKILL.md must position the reconcile step (S3.5) before the assemble "
+            "SKILL.md must position the reconcile step (S2.5) before the assemble "
             "step (S4)",
         )
 
@@ -502,7 +503,32 @@ class TestReconcileWiring(unittest.TestCase):
         self.assertNotEqual(assemble_cmd, -1, "SKILL.md never invokes assemble.py")
         self.assertLess(
             reconcile_cmd, assemble_cmd,
-            "SKILL.md must invoke reconcile.py before assemble.py (S3.5 before S4)",
+            "SKILL.md must invoke reconcile.py before assemble.py (S2.5 before S4)",
+        )
+
+    def test_reconcile_section_precedes_crossfile_and_assemble_sections(self):
+        """Pin the detailed-section reorder (S2.5 runs after S2b Verify and before
+        S3 Cross-file): the Reconcile section header must precede the Cross-file
+        section header, which must precede the Assemble section header. This
+        guards the documented order from regressing back to placing the detailed
+        Reconcile section after Cross-file."""
+        text = _read(SKILL_PATH)
+
+        reconcile_hdr = text.find("## S2.5 — Reconcile")
+        crossfile_hdr = text.find("## S3 — Cross-file")
+        assemble_hdr = text.find("## S4 — Assemble")
+        self.assertNotEqual(reconcile_hdr, -1, "SKILL.md has no '## S2.5 — Reconcile' section")
+        self.assertNotEqual(crossfile_hdr, -1, "SKILL.md has no '## S3 — Cross-file' section")
+        self.assertNotEqual(assemble_hdr, -1, "SKILL.md has no '## S4 — Assemble' section")
+        self.assertLess(
+            reconcile_hdr, crossfile_hdr,
+            "SKILL.md must position the reconcile section (S2.5) before the "
+            "cross-file section (S3)",
+        )
+        self.assertLess(
+            crossfile_hdr, assemble_hdr,
+            "SKILL.md must position the cross-file section (S3) before the "
+            "assemble section (S4)",
         )
 
     def test_skill_states_reconcile_runs_before_assemble_and_after_verify(self):

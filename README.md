@@ -19,7 +19,7 @@
   <a href="#what-it-does"><b>What it does</b></a> ·
   <a href="#usage"><b>Usage</b></a> ·
   <a href="#how-it-works"><b>How it works</b></a> ·
-  <a href="CLAUDE.md"><b>Architecture</b></a>
+  <a href="SKILL.md"><b>Architecture</b></a>
 </p>
 
 <img src="./docs/screenshot.png" width="820" alt="mdHumanViewer overview — the shared design shell: sticky table of contents, a dependency graph, a cross-file findings panel surfacing contradictions, and collapsible per-file sections that link back to source.">
@@ -107,7 +107,7 @@ The pipeline is **interactive at S1**: after deterministic discovery, you are sh
 
 ## How it works
 
-`SKILL.md` orchestrates the S0–S5 pipeline (with an inserted S3.5 reconcile step). The orchestrator stays light — it holds only paths, the session dir, and step statuses; all heavy reading happens inside subagents and Python scripts whose results land on disk.
+`SKILL.md` orchestrates the S0–S5 pipeline (with an inserted S2.5 reconcile step). The orchestrator stays light — it holds only paths, the session dir, and step statuses; all heavy reading happens inside subagents and Python scripts whose results land on disk.
 
 | Stage | What | How | Reads source | Output |
 |---|---|---|---|---|
@@ -115,14 +115,14 @@ The pipeline is **interactive at S1**: after deterministic discovery, you are sh
 | **S1 Parse** | discover files, build heading/link structure + dependency graph | **Python, 0 LLM** | 0 | `structure.json` |
 | **S2 Render** | per-file HTML fragment + analysis sidecar | **N parallel agents, 1 read each** | 1 | `fragments/<slug>.html`, `analysis/<slug>.json` |
 | **S2b Verify** | re-read source, check fidelity, fix in place | **N parallel agents, 1 read each** | 1 | revised fragment + verdict |
-| **S3.5 Reconcile** | losslessly close coverage + contract gates so assembly passes first try | **Python, 0 LLM** | 0 | fixed `fragments/` + `analysis/` in place |
+| **S2.5 Reconcile** | losslessly close coverage + contract gates so assembly passes first try | **Python, 0 LLM** | 0 | fixed `fragments/` + `analysis/` in place |
 | **S3 Cross-file** | contradictions / coverage / signal-noise | **1 agent, reads only `analysis/`** | 0 | `findings.json` |
 | **S4 Assemble** | shell + zones + stitch fragments + 4 hard-fail gates | **Python, 0 LLM** | 0 | `overview.html` + JSON report |
 | **S5 Report** | signpost in chat: where the file is and what to look at first | skill | 0 | chat message |
 
 The single source of truth for the design-system class vocabulary lives in `scripts/constants.py` (19 required class hooks, 10 mount markers, 5 allowed chrome anchors). Assembly runs four hard-fail gates: **anchor resolution**, **per-file coverage**, **contract check**, and **no-runtime-fetch**.
 
-For the full pipeline contract — manifest discipline, honest resume, the slug/anchor id space, and the artifact schemas — see [`CLAUDE.md`](./CLAUDE.md) and [`references/schemas.md`](./references/schemas.md).
+For the full pipeline contract — manifest discipline, honest resume, the slug/anchor id space, and the artifact schemas — see [`SKILL.md`](./SKILL.md) and [`references/schemas.md`](./references/schemas.md). For local development (running the tests, contributor conventions), see [`CONTRIBUTING.md`](./CONTRIBUTING.md).
 
 ## Output layout
 
@@ -142,7 +142,7 @@ Each run lands in a fresh dated session directory under the analyzed root. Every
 
 ## Performance guarantee
 
-- **About 2 LLM reads per file.** Each source enters an LLM context exactly twice — S2 (render) and S2b (verify) — and never again. S3 reads only the small `analysis/` sidecars; S1, S3.5, and S4 read no source into any LLM context at all.
+- **About 2 LLM reads per file.** Each source enters an LLM context exactly twice — S2 (render) and S2b (verify) — and never again. S3 reads only the small `analysis/` sidecars; S1, S2.5, and S4 read no source into any LLM context at all.
 - **Fully parallel.** Both per-file passes fan out N agents in a single assistant turn, so the cost is **max-of-files**, not sum-of-files.
 - **Zero serial whole-corpus generation passes.** Nothing re-emits `O(total-content)` in a serial loop. Assembly is deterministic Python that stitches the already-rendered fragments.
 

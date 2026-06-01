@@ -1,4 +1,4 @@
-"""Tests for scripts/reconcile.py — deterministic gate-2/gate-3 reconcile (S3.5).
+"""Tests for scripts/reconcile.py — deterministic gate-2/gate-3 reconcile (S2.5).
 
 Builds a temp session by hand (scoped structure.json + per-file fragment +
 analysis sidecar + the real source .md on disk) and exercises reconcile.py
