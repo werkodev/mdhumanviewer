@@ -9,7 +9,7 @@
 
 <p>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-green.svg?style=flat-square"></a>
-  <a href="https://github.com/werkodev/mdhumanviewer/releases"><img alt="Version 0.2.0" src="https://img.shields.io/badge/version-0.2.0-blue.svg?style=flat-square"></a>
+  <a href="https://github.com/werkodev/mdhumanviewer/releases"><img alt="Version 0.2.4" src="https://img.shields.io/badge/version-0.2.4-blue.svg?style=flat-square"></a>
   <a href="https://github.com/werkodev/mdhumanviewer/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/werkodev/mdhumanviewer/ci.yml?branch=main&label=ci&style=flat-square&logo=github"></a>
   <a href="#install"><img alt="Claude Code plugin" src="https://img.shields.io/badge/Claude_Code-plugin-D97757?style=flat-square&logo=anthropic&logoColor=white"></a>
 </p>
