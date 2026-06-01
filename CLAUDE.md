@@ -12,6 +12,7 @@ modify source `.md`; regenerate on demand into a fresh dated session dir.
 - **S1 Parse** — `scripts/parse_structure.py` (deterministic, 0 LLM) → `structure.json`.
 - **S2 Render** — N parallel `mdhv-renderer` agents, **1 read each** → `fragments/<slug>.html` + `analysis/<slug>.json`.
 - **S2b Verify** — N parallel `mdhv-verifier` agents, **1 read each**, fix in place.
+- **S3.5 Reconcile** — `scripts/reconcile.py` (deterministic, 0 LLM) losslessly closes the coverage + contract gates and fixes `fragments/` + `analysis/` in place (routing any genuine gap to a bounded renderer/verifier re-invoke) so S4 passes first try.
 - **S3 Cross-file** — one `mdhv-crossfile` agent reads **only** `analysis/` + `structure.json` → `findings.json`.
 - **S4 Assemble** — `scripts/assemble.py` (deterministic, 0 LLM) stitches + runs four hard-fail gates → `overview.html`.
 - **S5 Report** — chat signpost.

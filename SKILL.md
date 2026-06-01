@@ -118,8 +118,8 @@ sum-of-files, and there is **no serial whole-corpus pass**.
 | S1 Parse | discover + structure + dependency graph | **Python, 0 LLM** | 0 | `structure.json` |
 | S2 Render | intelligent per-file HTML fragment + analysis sidecar | **N parallel LLM, 1 read each** | 1 | `fragments/<slug>.html`, `analysis/<slug>.json` |
 | S2b Verify | re-read source, check fragment fidelity, fix in place | **N parallel LLM, 1 read each** | 1 | revised `fragments/<slug>.html` + verdict |
-| S3 Cross-file | contradictions / coverage / signal-noise | **1 LLM, reads only `analysis/`** | 0 | `findings.json` |
 | S3.5 Reconcile | losslessly close coverage + contract gates so assemble passes first try | **Python, 0 LLM** | 0 | fixed `fragments/` + `analysis/` in place |
+| S3 Cross-file | contradictions / coverage / signal-noise | **1 LLM, reads only `analysis/`** | 0 | `findings.json` |
 | S4 Assemble | shell + zones + stitch fragments + 4 hard-fail gates | **Python, 0 LLM** | 0 | `overview.html` + JSON report |
 | S5 Report | signpost in chat | skill | 0 | chat message |
 

@@ -8,6 +8,21 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 - _Nothing yet._
 
+## [0.1.2] - 2026-06-01
+
+### Documentation
+
+- Aligned every documentation surface with the code and the actual run order
+  (docs/docstring only — no logic, execution order, or stage numbering changed):
+  - `normalize()`'s final steps are now described as **strip ends → lowercase**
+    (matching `s.strip().lower()`) in `references/schemas.md` and the
+    `scripts/constants.py` docstring, resolving reversed wording that also
+    contradicted `schemas.md` itself. `strip().lower()` ≡ `lower().strip()`, so
+    the change is wording-only with no behavioral effect.
+  - The pipeline quick-reference tables in `SKILL.md` and `README.md`, plus a new
+    `CLAUDE.md` bullet, now place **S3.5 Reconcile before S3 Cross-file**, matching
+    how the orchestrator actually runs (verify → reconcile → cross-file → assemble).
+
 ## [0.1.1] - 2026-06-01
 
 ### Fixed

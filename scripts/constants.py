@@ -114,10 +114,10 @@ def normalize(s: str) -> str:
        / ``.``) so a snake_case identifier and its faithful human-readable render
        converge: ``muted_keyword_filter`` and ``muted keyword filter`` reduce to
        the same words;
-    4. lowercase (case is presentation, not meaning — a render may re-case a
+    4. strip leading/trailing whitespace;
+    5. lowercase (case is presentation, not meaning — a render may re-case a
        heading or inline token; the verifier catches real modal/meaning
-       distortions, which are word changes, not case changes);
-    5. strip leading/trailing whitespace.
+       distortions, which are word changes, not case changes).
 
     Gate 3 then checks that the normalized contract is a substring of BOTH the
     normalized source bytes and the normalized fragment ``.mdhv-contract`` text.

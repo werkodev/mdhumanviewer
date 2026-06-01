@@ -430,6 +430,6 @@ tags, (2) `html.unescape`, (3) replace every run of **non-word** characters
 **and underscores** (whitespace, punctuation, symbols, markdown syntax, and `_`)
 with a single space — leaving only content words (Unicode letters/digits)
 separated by spaces, so a snake_case identifier and its humanized render converge
-(`muted_keyword_filter` ≡ `muted keyword filter`), (4) lowercase, (5) strip ends. Gate 3 applies it to both sides of every
+(`muted_keyword_filter` ≡ `muted keyword filter`), (4) strip ends, (5) lowercase. Gate 3 applies it to both sides of every
 contract comparison; `analysis.contracts[].text` is stored already-normalized.
 Stdlib-only (`re`, `html`).

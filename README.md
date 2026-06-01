@@ -9,7 +9,7 @@
 
 <p>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-green.svg?style=flat-square"></a>
-  <a href="https://github.com/werkodev/mdhumanviewer/releases"><img alt="Version 0.1.1" src="https://img.shields.io/badge/version-0.1.1-blue.svg?style=flat-square"></a>
+  <a href="https://github.com/werkodev/mdhumanviewer/releases"><img alt="Version 0.1.2" src="https://img.shields.io/badge/version-0.1.2-blue.svg?style=flat-square"></a>
   <a href="https://github.com/werkodev/mdhumanviewer/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/werkodev/mdhumanviewer/ci.yml?branch=main&label=ci&style=flat-square&logo=github"></a>
   <a href="#install"><img alt="Claude Code plugin" src="https://img.shields.io/badge/Claude_Code-plugin-D97757?style=flat-square&logo=anthropic&logoColor=white"></a>
 </p>
@@ -115,8 +115,8 @@ The pipeline is **interactive at S1**: after deterministic discovery, you are sh
 | **S1 Parse** | discover files, build heading/link structure + dependency graph | **Python, 0 LLM** | 0 | `structure.json` |
 | **S2 Render** | per-file HTML fragment + analysis sidecar | **N parallel agents, 1 read each** | 1 | `fragments/<slug>.html`, `analysis/<slug>.json` |
 | **S2b Verify** | re-read source, check fidelity, fix in place | **N parallel agents, 1 read each** | 1 | revised fragment + verdict |
-| **S3 Cross-file** | contradictions / coverage / signal-noise | **1 agent, reads only `analysis/`** | 0 | `findings.json` |
 | **S3.5 Reconcile** | losslessly close coverage + contract gates so assembly passes first try | **Python, 0 LLM** | 0 | fixed `fragments/` + `analysis/` in place |
+| **S3 Cross-file** | contradictions / coverage / signal-noise | **1 agent, reads only `analysis/`** | 0 | `findings.json` |
 | **S4 Assemble** | shell + zones + stitch fragments + 4 hard-fail gates | **Python, 0 LLM** | 0 | `overview.html` + JSON report |
 | **S5 Report** | signpost in chat: where the file is and what to look at first | skill | 0 | chat message |
 
