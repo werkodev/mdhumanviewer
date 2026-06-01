@@ -2,7 +2,7 @@
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "mdhumanviewer",
   "displayName": "mdHumanViewer",
-  "version": "0.2.3",
+  "version": "0.2.4",
   "description": "Read a group of related Markdown files and assemble one self-contained, strongly human-readable HTML overview of the system as a whole. View, not storage: regenerates on demand from the current source .md, never modifies the sources. S0-S5 pipeline: Preflight -> Parse (deterministic Python) -> Render (N parallel agents) -> Verify (N parallel agents) -> Cross-file -> Assemble (deterministic Python) -> Report. Read-once / fully-parallel guarantee: each source enters an LLM context exactly twice (render + verify), both fully parallel, with zero serial whole-corpus generation passes; discovery, structure, graph, page assembly, and all fidelity gates run in stdlib Python off the LLM hot path.",
   "author": {
     "name": "Kirill",

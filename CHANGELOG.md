@@ -8,6 +8,14 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 - _Nothing yet._
 
+## [0.2.4] - 2026-06-01
+
+### Fixed
+
+- **CHANGELOG markdownlint (MD049).** Two single-asterisk emphasis spans in the
+  0.2.2 entry are now underscore emphasis, so the changelog passes the project's
+  consistent-emphasis lint (`markdownlint-cli2` reports 0 errors across all docs).
+
 ## [0.2.3] - 2026-06-01
 
 ### Added
@@ -52,10 +60,10 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 ### Removed
 
 - **`CLAUDE.md` dropped from the plugin.** It was a maintainer/dev guide (loaded
-  only when working *in* the repo, never for installed-plugin users) whose pipeline
+  only when working _in_ the repo, never for installed-plugin users) whose pipeline
   section merely duplicated `SKILL.md`. The full S0–S5 flow already lives in
   `SKILL.md` (the authoritative runtime contract); the one runtime invariant it
-  uniquely held — *`assemble.py` runs with CWD at the analyzed ROOT* — is folded
+  uniquely held — _`assemble.py` runs with CWD at the analyzed ROOT_ — is folded
   into `SKILL.md` S4, and the dev-only content (tests, conventions, source
   invariants) moved to a new **`CONTRIBUTING.md`**. README's "Architecture" /
   pipeline-contract links now point to `SKILL.md`.
