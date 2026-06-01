@@ -8,6 +8,33 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 - _Nothing yet._
 
+## [0.2.0] - 2026-06-01
+
+### Fixed
+
+- **The dependency graph now builds.** Edges were derived only from
+  `[text](file.md)` links, but these corpora cross-reference each other almost
+  entirely by backtick filename (`` `SKILL.md` ``, `` `references/schemas.md` ``) —
+  which `parse_structure.py` dropped on the floor (its inline-code path detector
+  excludes `.md`). So a richly cross-referenced corpus (the plugin's own docs)
+  produced a near-empty graph that collapsed to a flat chip list. Inline-code
+  references to another markdown node are now captured as a new `md_ref` link
+  type and become graph edges — **strong** on an exact ROOT-relative path match,
+  **weak** (tentative) on a bare-name match — alongside the existing
+  `relative_md` edges. References to non-md files (`` `scripts/x.py` ``) stay
+  `code_ref` and never create node edges.
+
+### Changed
+
+- **Zone 2 is now a layered flow diagram.** The radial node-link layout and the
+  adjacency-matrix mode are replaced by a single deterministic, cycle-safe
+  **layered** diagram: boxed nodes (title + file-path sub-label), arrowed
+  cubic-bezier edges (solid = strong, dashed = weak), hub fills, and an
+  isolated-node strip. Layer **depth is derived from connectivity** (longest-path
+  layering) — a reference chain renders deep, a flat hub-and-spoke stays shallow.
+  Render modes are now just `chips` (≤3 files or no edges) and `diagram`; the
+  same `structure.json` still renders byte-identically.
+
 ## [0.1.2] - 2026-06-01
 
 ### Documentation

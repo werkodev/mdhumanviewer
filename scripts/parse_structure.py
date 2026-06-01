@@ -252,6 +252,18 @@ def _looks_like_code_ref(path):
     return bool(CODE_PATH_RE.match(path))
 
 
+def _looks_like_md_ref(path):
+    """An inline-code token that names a markdown file (a candidate graph edge).
+
+    Docs in these corpora reference each other by backtick-wrapped filename
+    (``SKILL.md``, ``references/schemas.md``) far more often than by a
+    ``[text](file.md)`` link, so such a token is a real cross-reference the
+    graph must see. :func:`_looks_like_code_ref` deliberately skips it (it
+    excludes ``.md``), so it is captured separately as the ``md_ref`` type.
+    """
+    return bool(CODE_PATH_RE.match(path)) and path.lower().endswith(MD_EXTS)
+
+
 def _normalize_relative_target(target, source_rel, root):
     """ROOT-normalize a relative link target.
 
@@ -289,10 +301,24 @@ def parse_links(body, source_rel, root):
         if link is not None:
             links.append(link)
 
-    # Bare inline code that looks like a code path -> code_ref.
+    # Bare inline code that looks like a path: a markdown filename is an
+    # md_ref (candidate edge to another node); any other code file is a
+    # code_ref (surfaced, but not a graph edge).
     for m in INLINE_CODE_RE.finditer(body):
         token = m.group(1).strip()
-        if _looks_like_code_ref(token):
+        if _looks_like_md_ref(token):
+            # Normalize like a relative_md link so an inline `./refs/x.md` or a
+            # subdir-relative `../SKILL.md` resolves to the same ROOT-relative
+            # path key the graph join matches against (an exact match becomes a
+            # STRONG edge, not a demoted name match). Fall back to the raw token
+            # if it escapes ROOT, so a bare-name match can still fire.
+            norm = _normalize_relative_target(token, source_rel, root)
+            links.append({
+                "raw": m.group(0),
+                "target": norm if norm is not None else token,
+                "type": "md_ref",
+            })
+        elif _looks_like_code_ref(token):
             links.append({
                 "raw": m.group(0),
                 "target": token,
@@ -427,6 +453,30 @@ def build_graph(files):
                             "reason": "direct relative link",
                         })
 
+    # Strong edges from inline-code references resolved by exact path. Docs in
+    # these corpora cite each other by backtick filename (`references/schemas.md`)
+    # far more than by a [](link); an exact ROOT-relative path match is as
+    # deliberate as a relative link, so it ranks alongside the strong edges
+    # above (and skips any pair already connected strongly).
+    for f in files:
+        src_slug = f["slug"]
+        for link in f["links"]:
+            if link["type"] != "md_ref":
+                continue
+            target = link["target"]
+            if target in path_to_slug:
+                tgt_slug = path_to_slug[target]
+                if tgt_slug != src_slug:
+                    pair = (src_slug, tgt_slug)
+                    if pair not in strong_pairs:
+                        strong_pairs.add(pair)
+                        edges.append({
+                            "from": src_slug,
+                            "to": tgt_slug,
+                            "strength": "strong",
+                            "reason": "inline reference",
+                        })
+
     # Weak edges by bare-name match (tentative), skipping pairs already strong.
     name_to_slugs = {}
     for f in files:
@@ -455,6 +505,32 @@ def build_graph(files):
                     "to": cand_slug,
                     "strength": "weak",
                     "reason": f"name match: '{tgt_name}' (tentative)",
+                })
+
+    # Weak edges from inline-code references that resolve only by bare filename
+    # (no directory, or a different one) -> tentative, like the relative-link
+    # name match above. Exact-path inline refs already became strong edges.
+    for f in files:
+        src_slug = f["slug"]
+        for link in f["links"]:
+            if link["type"] != "md_ref":
+                continue
+            target = link["target"]
+            if target in path_to_slug:
+                continue  # already a strong inline edge
+            tgt_name = _name_key(target)
+            for cand_slug in name_to_slugs.get(tgt_name, []):
+                if cand_slug == src_slug:
+                    continue
+                pair = (src_slug, cand_slug)
+                if pair in strong_pairs or pair in weak_seen:
+                    continue
+                weak_seen.add(pair)
+                edges.append({
+                    "from": src_slug,
+                    "to": cand_slug,
+                    "strength": "weak",
+                    "reason": f"inline name match: '{tgt_name}' (tentative)",
                 })
 
     return {"nodes": nodes, "edges": edges}

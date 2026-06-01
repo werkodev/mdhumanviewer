@@ -543,8 +543,9 @@ pre {
 .mdhv-src-link:hover { color: var(--mdhv-accent); }
 
 /* ===================================================================
-   Zone 2 — system map. Three deterministic render modes; all share the
-   region styling. Chips, matrix cells, and SVG nodes/edges live here.
+   Zone 2 — system map. Two deterministic render modes share this region
+   styling: a chip strip (tiny / edgeless corpora) and a layered node-link
+   flow diagram (boxed nodes + arrowed edges) for everything connected.
    =================================================================== */
 .mdhv-graph {
   border: 1px solid var(--mdhv-line);
@@ -582,7 +583,9 @@ pre {
   background: var(--mdhv-accent-soft);
   color: var(--mdhv-accent-deep);
 }
-/* SVG variants of the same hook */
+/* SVG variants of the same hook — boxed node in the layered flow diagram.
+   A node is an <a> group wrapping a rounded <rect> with a primary label and a
+   muted file-path sub-label; hubs are filled. */
 svg .mdhv-node text,
 svg .mdhv-node .mdhv-node-label,
 svg .mdhv-node .mdhv-node-label-hub {
@@ -592,20 +595,30 @@ svg .mdhv-node .mdhv-node-label-hub {
   text-anchor: middle;
 }
 svg .mdhv-node .mdhv-node-label-hub { font-weight: 700; fill: var(--mdhv-accent-deep); }
+/* file-path sub-label under the title (CSS-only hook, not a REQUIRED hook) */
+svg .mdhv-node .mdhv-node-sub {
+  font-family: var(--mdhv-font-mono);
+  font-size: 8.5px;
+  fill: var(--mdhv-ink-faint);
+  text-anchor: middle;
+}
 svg .mdhv-node circle, svg .mdhv-node rect {
-  fill: var(--mdhv-surface-alt);
+  fill: var(--mdhv-surface);
   stroke: var(--mdhv-line-strong);
   stroke-width: 1.5;
+  transition: stroke 120ms ease;
 }
-svg .mdhv-node[data-hub="true"] circle {
+svg .mdhv-node:hover rect { stroke: var(--mdhv-accent); }
+svg .mdhv-node[data-hub="true"] circle,
+svg .mdhv-node[data-hub="true"] rect {
   fill: var(--mdhv-accent-soft);
   stroke: var(--mdhv-accent);
   stroke-width: 2;
 }
 svg .mdhv-graph-svg #mdhv-arrow path { fill: var(--mdhv-ink-muted); }
 
-/* edge — solid for strong, dashed + faded for weak (tentative). In the
-   adjacency-matrix mode, edge cells reuse this hook. */
+/* edge — solid for strong, dashed + faded for weak (tentative). Drawn as an
+   SVG <path> with an arrowhead marker in the layered flow diagram. */
 .mdhv-edge { stroke: var(--mdhv-ink-muted); stroke-width: 1.6; fill: none; }
 .mdhv-edge.is-weak,
 .mdhv-edge.mdhv-edge-weak {
@@ -614,20 +627,6 @@ svg .mdhv-graph-svg #mdhv-arrow path { fill: var(--mdhv-ink-muted); }
   stroke-width: 1;
 }
 .mdhv-edge.mdhv-edge-strong { stroke: var(--mdhv-ink); stroke-width: 1.6; }
-
-table.mdhv-matrix { border-collapse: collapse; font-size: 0.8rem; font-family: var(--mdhv-font-mono); }
-table.mdhv-matrix th, table.mdhv-matrix td {
-  border: 1px solid var(--mdhv-line);
-  padding: 0.28rem 0.42rem;
-  text-align: center;
-}
-table.mdhv-matrix th { background: var(--mdhv-surface-alt); font-weight: 600; }
-.mdhv-matrix .mdhv-matrix-corner,
-.mdhv-matrix .mdhv-matrix-self { background: var(--mdhv-surface-sunk); }
-.mdhv-matrix td.mdhv-edge { color: var(--mdhv-ink); font-weight: 700; }              /* strong */
-.mdhv-matrix td.mdhv-edge-strong { background: var(--mdhv-accent-soft); color: var(--mdhv-accent-deep); }
-.mdhv-matrix td.mdhv-edge.is-weak,
-.mdhv-matrix td.mdhv-edge-weak { background: transparent; opacity: 1; color: var(--mdhv-ink-faint); } /* weak  */
 
 .mdhv-graph-caption {
   margin: 0.6rem 0 0;
@@ -907,9 +906,8 @@ table.mdhv-matrix th { background: var(--mdhv-surface-alt); font-weight: 600; }
    Zone 4 — in-fragment reading polish (Phase D, pure presentation).
    These rules style the rendered-markdown BODY of each file fragment:
    tables, prose measure, heading hierarchy, link affordances. They are
-   scoped to .mdhv-file (Zone 4) so they never touch the Zone-2 graph
-   adjacency matrix (table.mdhv-matrix lives in .mdhv-graph, not .mdhv-file)
-   or the chrome TOC. No new class hooks — element selectors only.
+   scoped to .mdhv-file (Zone 4) so they never touch the Zone-2 graph or the
+   chrome TOC. No new class hooks — element selectors only.
    =================================================================== */
 
 /* ---- Rendered markdown tables ----
@@ -917,7 +915,7 @@ table.mdhv-matrix th { background: var(--mdhv-surface-alt); font-weight: 600; }
    win. Header band, zebra body rows, hairline cells, a slightly smaller
    measured size, and horizontal scroll when a wide table overflows the
    reading column (the table becomes its own scroll region rather than
-   forcing the page wide). Scoped to .mdhv-file so the graph matrix and the
+   forcing the page wide). Scoped to .mdhv-file so the Zone-2 graph and the
    sticky TOC are untouched. */
 .mdhv-file table {
   display: block;            /* lets a wide table scroll instead of overflow */
@@ -1274,9 +1272,9 @@ table.mdhv-matrix th { background: var(--mdhv-surface-alt); font-weight: 600; }
         <!-- MDHV:GRAPH:START -->
         <span class="mdhv-node">example.md</span>
         <p class="mdhv-graph-caption">
-          Placeholder map. assemble.py replaces this with a chip strip,
-          adjacency matrix, or SVG node-link diagram chosen by node and
-          strong-edge counts. Edges use <span class="mdhv-edge"></span>
+          Placeholder map. assemble.py replaces this with a chip strip or a
+          layered node-link flow diagram chosen by node and edge counts.
+          Edges use <span class="mdhv-edge"></span>
           styling (solid = strong, dashed/faded = weak).
         </p>
         <!-- MDHV:GRAPH:END -->

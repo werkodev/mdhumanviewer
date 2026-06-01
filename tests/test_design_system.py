@@ -204,6 +204,17 @@ class CssOnlyHookTest(unittest.TestCase):
         # the hub-swatch variant is also styled so meaning != position alone
         self.assertIn(".mdhv-graph-key-hub", self.html)
 
+    def test_node_sub_label_is_styled(self):
+        # The layered-diagram node's file-path sub-label is a CSS-only hook.
+        self.assertNotIn(
+            "mdhv-node-sub", REQUIRED_CLASS_HOOKS,
+            "mdhv-node-sub must stay CSS-only (not added to REQUIRED_CLASS_HOOKS)",
+        )
+        self.assertIn(
+            ".mdhv-node-sub", self.html,
+            "design system must define CSS for the CSS-only hook .mdhv-node-sub",
+        )
+
     def test_overview_panel_hooks_are_styled(self):
         # R1's at-a-glance panel is a family of CSS-only hooks (NOT registered in
         # REQUIRED_CLASS_HOOKS) that must each carry a style rule.

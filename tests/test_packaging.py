@@ -44,7 +44,7 @@ class TestPluginJson(unittest.TestCase):
 
     def test_version(self):
         data = load(PLUGIN_JSON)
-        self.assertEqual(data["version"], "0.1.2")
+        self.assertEqual(data["version"], "0.2.0")
 
     def test_author(self):
         data = load(PLUGIN_JSON)
@@ -89,6 +89,13 @@ class TestMarketplaceJson(unittest.TestCase):
     def test_parses(self):
         data = load(MARKETPLACE_JSON)
         self.assertIsInstance(data, dict)
+
+    def test_marketplace_name_is_single_plugin_catalog(self):
+        # A one-plugin catalog named after its plugin (the marketplace name and
+        # the plugin name share the "mdhumanviewer" slug, different scopes:
+        # users install mdhumanviewer@mdhumanviewer).
+        data = load(MARKETPLACE_JSON)
+        self.assertEqual(data["name"], PLUGIN_NAME)
 
     def test_owner_is_werkodev(self):
         data = load(MARKETPLACE_JSON)

@@ -578,47 +578,88 @@ class FindingsCompareGridTests(AssembleHarness):
 
 class GraphModeTests(AssembleHarness):
     def test_n3_is_chips(self):
-        # N=3 -> chips regardless of S
+        # N<=3 -> chips regardless of edges.
         structure = make_structure(3, edges=[strong("f0", "f1"), strong("f1", "f2")])
         _, report, document = self._run(structure)
         self.assertEqual(report["graph_mode"], "chips")
         self.assertIn('data-mode="chips"', document)
         self.assertIn("mdhv-graph-caption", document)
 
-    def test_n6_strong_is_matrix(self):
-        edges = [strong("f0", "f1"), strong("f2", "f3")]
-        structure = make_structure(6, edges=edges)
-        _, report, document = self._run(structure)
-        self.assertEqual(report["graph_mode"], "matrix")
-        self.assertIn('data-mode="matrix"', document)
-        self.assertIn("mdhv-matrix", document)
-
-    def test_n6_no_strong_is_chips(self):
-        # 4 <= N <= 8 but S == 0 -> chips, not matrix
-        edges = [weak("f0", "f1"), weak("f2", "f3")]
-        structure = make_structure(6, edges=edges)
+    def test_no_edges_is_chips(self):
+        # Any N with zero edges -> chips: no relationships to lay out.
+        structure = make_structure(10, edges=[])
         _, report, document = self._run(structure)
         self.assertEqual(report["graph_mode"], "chips")
         self.assertIn('data-mode="chips"', document)
+        self.assertNotIn("<svg", document)
 
-    def test_n10_strong_is_svg(self):
+    def test_n4_with_one_edge_is_diagram(self):
+        # N>=4 with at least one edge -> the layered flow diagram.
+        structure = make_structure(4, edges=[strong("f0", "f1")])
+        _, report, document = self._run(structure)
+        self.assertEqual(report["graph_mode"], "diagram")
+        self.assertIn('data-mode="diagram"', document)
+        self.assertIn("<svg", document)
+
+    def test_weak_only_edges_still_diagram(self):
+        # Mode keys on TOTAL edge count, not strong count: weak-only still
+        # lays out (as a dashed diagram), it no longer falls back to chips.
+        edges = [weak("f0", "f1"), weak("f2", "f3")]
+        structure = make_structure(6, edges=edges)
+        _, report, document = self._run(structure)
+        self.assertEqual(report["graph_mode"], "diagram")
+        self.assertIn('data-mode="diagram"', document)
+        self.assertIn("mdhv-edge-weak", document)
+
+    def test_n10_strong_is_diagram(self):
         edges = [strong("f0", "f1"), strong("f1", "f2"), strong("f2", "f3")]
         structure = make_structure(10, edges=edges)
         _, report, document = self._run(structure)
-        self.assertEqual(report["graph_mode"], "svg")
-        self.assertIn('data-mode="svg"', document)
+        self.assertEqual(report["graph_mode"], "diagram")
+        self.assertIn('data-mode="diagram"', document)
         self.assertIn("<svg", document)
+        self.assertIn("<rect", document)
 
-    def test_n10_no_strong_is_chips_short_circuit(self):
-        # Locks the S==0 short-circuit BEFORE the N>=9 branch.
-        edges = [weak("f0", "f1"), weak("f2", "f3")]
-        structure = make_structure(10, edges=edges)
+
+class GraphFlowDiagramTests(AssembleHarness):
+    def _diagram(self, n, edges):
+        structure = make_structure(n, edges=edges)
         _, report, document = self._run(structure)
-        self.assertEqual(report["graph_mode"], "chips")
-        self.assertNotIn("<svg", document)
+        self.assertEqual(report["graph_mode"], "diagram")
+        return document
 
+    def test_nodes_are_boxes_with_path_sublabel(self):
+        # Each connected node is a <rect> box with a file-path sub-label.
+        doc = self._diagram(4, [strong("f0", "f1"), strong("f1", "f2")])
+        self.assertIn("<rect", doc)
+        self.assertIn('class="mdhv-node-sub"', doc)
+        self.assertIn("dir1/f1.md", doc)          # sub-label carries the path
+        self.assertIn("<title>", doc)             # full title/path in a tooltip
 
-class GraphSvgDisciplineTests(AssembleHarness):
+    def test_edges_are_arrowed_paths_one_per_edge(self):
+        # Edges are <path> elements (not <line>), one per directed edge, each
+        # carrying an arrowhead marker.
+        edges = [strong("f0", "f1"), strong("f1", "f2"), strong("f2", "f3")]
+        doc = self._diagram(5, edges)
+        self.assertEqual(doc.count('<path class="mdhv-edge'), 3)
+        self.assertEqual(doc.count('marker-end="url(#mdhv-arrow)"'), 3)
+        self.assertNotIn("<line", doc)
+
+    def test_two_cycle_draws_both_directions(self):
+        # A->B and B->A are two real references -> two arrowed paths (the
+        # renderer no longer collapses a pair into one line).
+        edges = [strong("f0", "f1"), strong("f1", "f0"), strong("f2", "f3")]
+        doc = self._diagram(5, edges)
+        self.assertEqual(doc.count('<path class="mdhv-edge'), 3)
+        self.assertNotIn("marker-start=", doc)
+
+    def test_hub_box_filled_via_data_hub(self):
+        edges = [strong("f0", "f5"), strong("f1", "f5"), strong("f2", "f5")]
+        doc = self._diagram(10, edges)
+        m = re.search(r'href="#f5--file"[^>]*data-hub="(\w+)"', doc)
+        self.assertIsNotNone(m)
+        self.assertEqual(m.group(1), "true")
+
     def test_hub_is_incoming_strong_only(self):
         # f5 has 3 INCOMING strong edges -> hub.
         # f0 has 3 OUTGOING strong edges and many INCOMING WEAK edges -> NOT a hub.
@@ -627,63 +668,80 @@ class GraphSvgDisciplineTests(AssembleHarness):
             strong("f0", "f6"), strong("f0", "f7"),
             weak("f8", "f0"), weak("f9", "f0"), weak("f3", "f0"),
         ]
-        structure = make_structure(10, edges=edges)
-        _, report, document = self._run(structure)
-        self.assertEqual(report["graph_mode"], "svg")
-        # f5 marked hub
-        m_hub = re.search(r'href="#f5--file"[^>]*data-hub="(\w+)"', document)
+        doc = self._diagram(10, edges)
+        m_hub = re.search(r'href="#f5--file"[^>]*data-hub="(\w+)"', doc)
         self.assertIsNotNone(m_hub)
         self.assertEqual(m_hub.group(1), "true", "f5 should be a hub (>=2 incoming strong)")
-        # f0 NOT a hub despite high total/weak-incoming degree
-        m_f0 = re.search(r'href="#f0--file"[^>]*data-hub="(\w+)"', document)
+        m_f0 = re.search(r'href="#f0--file"[^>]*data-hub="(\w+)"', doc)
         self.assertIsNotNone(m_f0)
         self.assertEqual(m_f0.group(1), "false", "f0 must not be a hub (incoming weak never counts)")
 
-    def test_bidirectional_drawn_as_single_line(self):
-        # A->B and B->A should be ONE <line>, not two.
-        edges = [
-            strong("f0", "f1"), strong("f1", "f0"),  # bidirectional pair
-            strong("f2", "f3"), strong("f4", "f5"),
-        ]
-        structure = make_structure(10, edges=edges)
-        _, report, document = self._run(structure)
-        self.assertEqual(report["graph_mode"], "svg")
-        # 3 distinct pairs -> 3 lines (the bidirectional pair collapses to 1).
-        self.assertEqual(document.count("<line"), 3)
-        # the collapsed bidirectional line carries arrowheads at BOTH ends
-        self.assertIn("marker-start=", document)
-
     def test_identical_reason_collapsed_to_one_legend_entry(self):
-        # Three strong edges share the same reason text -> one legend entry.
         edges = [
             strong("f0", "f1", reason="shared reason"),
             strong("f2", "f3", reason="shared reason"),
             strong("f4", "f5", reason="shared reason"),
         ]
-        structure = make_structure(10, edges=edges)
-        _, report, document = self._run(structure)
-        self.assertEqual(report["graph_mode"], "svg")
-        # exactly one legend <li> for the shared reason
-        li_count = len(re.findall(r'<li class="mdhv-edge mdhv-edge-strong">shared reason</li>', document))
+        doc = self._diagram(10, edges)
+        li_count = len(re.findall(r'<li class="mdhv-edge mdhv-edge-strong">shared reason</li>', doc))
         self.assertEqual(li_count, 1, "identical reasons collapse to a single legend entry")
 
     def test_weak_edges_dashed_and_low_opacity(self):
-        # Need at least one strong edge so mode is svg, plus a weak edge to check styling.
         edges = [strong("f0", "f1"), strong("f1", "f2"), weak("f3", "f4")]
-        structure = make_structure(10, edges=edges)
-        _, report, document = self._run(structure)
-        self.assertEqual(report["graph_mode"], "svg")
-        self.assertIn("stroke-dasharray", document)
-        self.assertIn('opacity="0.4"', document)
+        doc = self._diagram(10, edges)
+        self.assertIn("stroke-dasharray", doc)
+        self.assertIn('opacity="0.45"', doc)
 
     def test_isolated_nodes_grouped_separately(self):
         # f0..f4 connected; f5..f9 isolated.
         edges = [strong("f0", "f1"), strong("f1", "f2"), strong("f2", "f3"), strong("f3", "f4")]
-        structure = make_structure(10, edges=edges)
+        doc = self._diagram(10, edges)
+        self.assertIn("mdhv-graph-isolated", doc)
+        self.assertIn(">isolated<", doc)
+
+
+class GraphDepthTests(AssembleHarness):
+    """Layer DEPTH is derived from connectivity (the user-visible promise:
+    deeply-chained corpora go deep; flat hub-and-spoke stays shallow)."""
+
+    def _rect_y(self, document):
+        # slug -> rect y; only connected nodes have a <rect> (isolated -> chips).
+        out = {}
+        for m in re.finditer(
+            r'href="#(\w+)--file"[^>]*>.*?<rect[^>]*?\by="([\d.]+)"', document
+        ):
+            out.setdefault(m.group(1), float(m.group(2)))
+        return out
+
+    def test_chain_is_deep(self):
+        # f0->f1->f2->f3 : four layers, strictly increasing y, all distinct.
+        edges = [strong("f0", "f1"), strong("f1", "f2"), strong("f2", "f3")]
+        structure = make_structure(4, edges=edges)
         _, report, document = self._run(structure)
-        self.assertEqual(report["graph_mode"], "svg")
-        self.assertIn("mdhv-graph-isolated", document)
-        self.assertIn(">isolated<", document)
+        self.assertEqual(report["graph_mode"], "diagram")
+        ys = self._rect_y(document)
+        self.assertLess(ys["f0"], ys["f1"])
+        self.assertLess(ys["f1"], ys["f2"])
+        self.assertLess(ys["f2"], ys["f3"])
+        self.assertEqual(len({ys["f0"], ys["f1"], ys["f2"], ys["f3"]}), 4)
+
+    def test_star_is_shallow(self):
+        # f1,f2,f3 -> f0 : exactly two layers (referrers over the referenced hub).
+        edges = [strong("f1", "f0"), strong("f2", "f0"), strong("f3", "f0")]
+        structure = make_structure(4, edges=edges)
+        _, _, document = self._run(structure)
+        ys = self._rect_y(document)
+        self.assertEqual(len(set(ys.values())), 2)
+        self.assertGreater(ys["f0"], ys["f1"])
+
+    def test_cycle_places_all_nodes_without_hanging(self):
+        # 3-cycle f0->f1->f2->f0 still lays every node out (back-edge dropped).
+        edges = [strong("f0", "f1"), strong("f1", "f2"), strong("f2", "f0")]
+        structure = make_structure(4, edges=edges)  # f3 isolated
+        _, report, document = self._run(structure)
+        self.assertEqual(report["graph_mode"], "diagram")
+        ys = self._rect_y(document)
+        self.assertEqual(set(ys), {"f0", "f1", "f2"})
 
 
 class GraphKeyAndA11yTests(AssembleHarness):
@@ -696,7 +754,7 @@ class GraphKeyAndA11yTests(AssembleHarness):
     def test_svg_has_title_and_desc_with_fixed_ids(self):
         # G2: aria-labelledby + <title>/<desc> replace the bare aria-label.
         _, report, document = self._run(self._svg_structure())
-        self.assertEqual(report["graph_mode"], "svg")
+        self.assertEqual(report["graph_mode"], "diagram")
         self.assertIn('aria-labelledby="mdhv-graph-title mdhv-graph-desc"', document)
         self.assertNotIn('aria-label="dependency graph"', document)
         self.assertIn('<title id="mdhv-graph-title">Cross-file reference graph</title>', document)
@@ -705,33 +763,33 @@ class GraphKeyAndA11yTests(AssembleHarness):
         self.assertIn('role="img"', document)
 
     def test_title_and_desc_are_first_children_of_svg(self):
-        # They must precede <defs>/<line>/<a> so SR announces them first.
+        # They must precede <defs>/<path>/<a> so SR announces them first.
         _, _, document = self._run(self._svg_structure())
         svg_open = document.find("<svg")
         title_at = document.find("<title id=\"mdhv-graph-title\"", svg_open)
         desc_at = document.find("<desc id=\"mdhv-graph-desc\"", svg_open)
         defs_at = document.find("<defs>", svg_open)
-        first_line = document.find("<line", svg_open)
+        first_edge = document.find('<path class="mdhv-edge', svg_open)
         self.assertNotEqual(title_at, -1)
         self.assertNotEqual(desc_at, -1)
         self.assertTrue(svg_open < title_at < desc_at < defs_at,
                         "title then desc must be the first two children of <svg>")
-        self.assertTrue(desc_at < first_line,
-                        "title/desc must precede the edge <line> elements")
+        self.assertTrue(desc_at < first_edge,
+                        "title/desc must precede the edge <path> elements")
 
     def test_desc_carries_plain_english_and_counts(self):
         _, _, document = self._run(self._svg_structure())
         d_start = document.find("<desc id=\"mdhv-graph-desc\">")
         d_end = document.find("</desc>", d_start)
         desc_text = document[d_start:d_end]
-        self.assertIn("Arrows point from a file to the files it references", desc_text)
+        self.assertIn("layered top-to-bottom from referrer to referenced", desc_text)
         self.assertIn("hubs", desc_text)
         self.assertIn("strong cross-references", desc_text)
 
-    def test_graph_key_ul_with_three_conventions_in_svg_mode(self):
-        # G1: HTML conventions key (a <ul>, NOT inline <svg><line>).
+    def test_graph_key_ul_with_three_conventions_in_diagram_mode(self):
+        # G1: HTML conventions key (a <ul>, NOT inline <svg> drawing).
         _, report, document = self._run(self._svg_structure())
-        self.assertEqual(report["graph_mode"], "svg")
+        self.assertEqual(report["graph_mode"], "diagram")
         self.assertIn('<ul class="mdhv-graph-key">', document)
         self.assertIn("solid line = strong cross-reference", document)
         self.assertIn("dashed line = weak / name-match", document)
@@ -741,45 +799,28 @@ class GraphKeyAndA11yTests(AssembleHarness):
         k_end = document.find("</ul>", k_start)
         self.assertEqual(document[k_start:k_end].count("<li"), 3)
 
-    def test_graph_key_renders_in_matrix_mode(self):
-        edges = [strong("f0", "f1"), strong("f2", "f3")]
-        structure = make_structure(6, edges=edges)
-        _, report, document = self._run(structure)
-        self.assertEqual(report["graph_mode"], "matrix")
-        self.assertIn('<ul class="mdhv-graph-key">', document)
-        self.assertIn("solid line = strong cross-reference", document)
-        self.assertIn("dashed line = weak / name-match", document)
-        self.assertIn("filled node = hub (referenced by >=2 files)", document)
-
-    def test_matrix_caption_refined_plain_english(self):
-        edges = [strong("f0", "f1"), strong("f2", "f3")]
-        structure = make_structure(6, edges=edges)
-        _, _, document = self._run(structure)
-        self.assertIn("Each row references the columns marked below", document)
-        self.assertIn("filled = strong cross-reference, hollow = weak / name-match", document)
-
-    def test_svg_caption_has_plain_english_reading_plus_counts(self):
+    def test_diagram_caption_has_plain_english_reading_plus_counts(self):
         _, _, document = self._run(self._svg_structure())
         cap_at = document.rfind('<p class="mdhv-graph-caption">')
         caption = document[cap_at:document.find("</p>", cap_at)]
-        self.assertIn("Arrows point from a file to the files it references", caption)
+        self.assertIn("layered top-to-bottom from referrer to referenced", caption)
         self.assertIn("filled nodes are hubs", caption)
         # the existing counts are preserved
         self.assertIn("strong cross-references", caption)
         self.assertIn("hub(s)", caption)
         self.assertIn("isolated", caption)
 
-    def test_graph_key_adds_no_line_elements(self):
-        # The key is HTML (<li>), so document.count("<line") is unchanged: a
-        # bidirectional pair (1 line) + two other strong pairs = 3 lines total.
+    def test_graph_key_adds_no_edge_paths(self):
+        # The key is HTML (<li>), so the SVG edge count equals the edge count:
+        # 4 directed edges -> 4 <path class="mdhv-edge"> (no pair collapse).
         edges = [
-            strong("f0", "f1"), strong("f1", "f0"),  # bidirectional -> 1 line
+            strong("f0", "f1"), strong("f1", "f0"),
             strong("f2", "f3"), strong("f4", "f5"),
         ]
         structure = make_structure(10, edges=edges)
         _, report, document = self._run(structure)
-        self.assertEqual(report["graph_mode"], "svg")
-        self.assertEqual(document.count("<line"), 3)
+        self.assertEqual(report["graph_mode"], "diagram")
+        self.assertEqual(document.count('<path class="mdhv-edge'), 4)
 
 
 class SvgDeterminismTests(AssembleHarness):
@@ -790,7 +831,7 @@ class SvgDeterminismTests(AssembleHarness):
         ]
         structure = make_structure(10, edges=edges)
         _, report, document = self._run(structure)
-        self.assertEqual(report["graph_mode"], "svg")
+        self.assertEqual(report["graph_mode"], "diagram")
         return document
 
     def test_svg_byte_identical_across_runs(self):
@@ -812,8 +853,8 @@ class SvgDeterminismTests(AssembleHarness):
 
     def test_node_order_sorted_by_directory_slug_not_hash(self):
         # Give files file_paths whose (directory, slug) order differs from
-        # both insertion order and hash order, then confirm the first circle
-        # positions follow (directory, slug) order.
+        # both insertion order and hash order, then confirm the node boxes are
+        # emitted in (directory, slug) order.
         files = []
         nodes = []
         # deliberately scrambled insertion order; directories chosen so sorted
@@ -847,7 +888,7 @@ class SvgDeterminismTests(AssembleHarness):
             "graph": {"nodes": nodes, "edges": edges},
         }
         _, report, document = self._run(structure)
-        self.assertEqual(report["graph_mode"], "svg")
+        self.assertEqual(report["graph_mode"], "diagram")
         # Expected sorted (directory, slug) order:
         expected = ["a", "b", "f", "g", "h", "i", "j", "c", "d", "e"]
         # Order in which node anchors appear in the SVG <a class="mdhv-node" href="#..--file">
@@ -1711,8 +1752,9 @@ class EndToEndTests(AssembleHarness):
         self.assertEqual(report["graph_mode"], "chips")
         self._assert_clean(report, document)
 
-    def test_e2e_matrix_mode(self):
-        # 4<=N<=8 with S>0 -> adjacency matrix.
+    def test_e2e_diagram_mode_midsize(self):
+        # 4<=N<=8 with edges -> layered flow diagram, clean through all gates
+        # against the REAL design system.
         structure, fragments, analyses, sources = self._corpus(
             6, edges=[strong("f0", "f1"), strong("f2", "f3")])
         findings = self._all_severities_findings(6)
@@ -1720,12 +1762,13 @@ class EndToEndTests(AssembleHarness):
             structure, findings=findings, fragments=fragments,
             analyses=analyses, sources=sources, design=self._read_real_design())
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertEqual(report["graph_mode"], "matrix")
+        self.assertEqual(report["graph_mode"], "diagram")
         self._assert_clean(report, document)
-        self.assertIn("mdhv-matrix", document)
+        self.assertIn("<svg", document)
+        self.assertIn("<rect", document)
 
-    def test_e2e_svg_mode(self):
-        # N>=9 with S>0 -> SVG.
+    def test_e2e_diagram_mode_large(self):
+        # N>=9 with edges (incl. a cycle + a weak edge) -> layered diagram.
         edges = [strong("f0", "f1"), strong("f1", "f2"), strong("f2", "f0"),
                  strong("f3", "f1"), weak("f7", "f8")]
         structure, fragments, analyses, sources = self._corpus(10, edges=edges)
@@ -1734,7 +1777,7 @@ class EndToEndTests(AssembleHarness):
             structure, findings=findings, fragments=fragments,
             analyses=analyses, sources=sources, design=self._read_real_design())
         self.assertEqual(proc.returncode, 0, proc.stderr)
-        self.assertEqual(report["graph_mode"], "svg")
+        self.assertEqual(report["graph_mode"], "diagram")
         self._assert_clean(report, document)
         self.assertIn("<svg", document)
 

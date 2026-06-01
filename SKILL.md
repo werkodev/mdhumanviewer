@@ -541,7 +541,7 @@ Finish in the main conversation with a short, scannable signpost (the HTML is th
 deliverable; the report is the signpost):
 - Where the output is: `${SESSION}/overview.html` (and how to open it).
 - What was processed: file count, total token estimate (labelled an estimate),
-  output language, and the graph mode (`chip` / `matrix` / `svg`) from the report.
+  output language, and the graph mode (`chips` / `diagram`) from the report.
 - The headline of the system map: how many files, the main groups.
 - **Cross-file findings up front** — especially `high`-severity contradictions and
   coverage gaps from S3, with the files involved. This is the part the user most

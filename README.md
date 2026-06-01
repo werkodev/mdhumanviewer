@@ -9,7 +9,7 @@
 
 <p>
   <a href="LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-green.svg?style=flat-square"></a>
-  <a href="https://github.com/werkodev/mdhumanviewer/releases"><img alt="Version 0.1.2" src="https://img.shields.io/badge/version-0.1.2-blue.svg?style=flat-square"></a>
+  <a href="https://github.com/werkodev/mdhumanviewer/releases"><img alt="Version 0.2.0" src="https://img.shields.io/badge/version-0.2.0-blue.svg?style=flat-square"></a>
   <a href="https://github.com/werkodev/mdhumanviewer/actions/workflows/ci.yml"><img alt="CI" src="https://img.shields.io/github/actions/workflow/status/werkodev/mdhumanviewer/ci.yml?branch=main&label=ci&style=flat-square&logo=github"></a>
   <a href="#install"><img alt="Claude Code plugin" src="https://img.shields.io/badge/Claude_Code-plugin-D97757?style=flat-square&logo=anthropic&logoColor=white"></a>
 </p>
@@ -27,7 +27,7 @@
 </div>
 
 > [!TIP]
-> **Quickstart** — `/plugin marketplace add werkodev/mdhumanviewer`, then `/plugin install mdhumanviewer@werkodev`, and ask Claude for _"an overview of `./your-markdown-dir`"_.
+> **Quickstart** — `/plugin marketplace add werkodev/mdhumanviewer`, then `/plugin install mdhumanviewer@mdhumanviewer`, and ask Claude for _"an overview of `./your-markdown-dir`"_.
 
 ## What it does
 
@@ -35,7 +35,7 @@ Point mdHumanViewer at a directory of related Markdown files — skills, specs, 
 
 - **One page, no network.** Everything (CSS, JS, content) is inlined into one HTML file you open locally.
 - **Structure-faithful.** The page mirrors the original heading structure; raw prose stays in the `.md` and is one click away from every section.
-- **Cross-file links.** A dependency graph connects files that reference each other (strong/weak edges), rendered as chips, an adjacency matrix, or an SVG depending on corpus size.
+- **Cross-file links.** A dependency graph connects files that reference each other — by `[text](file.md)` link _or_ by backtick filename (`` `SKILL.md` ``) — with strong/weak edges, rendered as a chip strip (tiny/edgeless corpora) or a layered flow diagram whose depth follows how deeply the corpus is connected.
 - **Contradiction findings.** A cross-file pass surfaces contradictions, coverage gaps, and signal/noise observations near the top, severity-tagged.
 - **Contract checks.** Cross-cutting "contracts" (the load-bearing claims in your docs) are extracted per file and verified against the source bytes at assembly time.
 
@@ -74,10 +74,10 @@ This repo ships a `.claude-plugin/marketplace.json`, so you can add it as a mark
 
 ```
 /plugin marketplace add werkodev/mdhumanviewer
-/plugin install mdhumanviewer@werkodev
+/plugin install mdhumanviewer@mdhumanviewer
 ```
 
-`add` takes the GitHub `owner/repo` shorthand. `mdhumanviewer@werkodev` is `<plugin-name>@<marketplace-name>`: `mdhumanviewer` is the plugin `name` in `plugin.json`, and `werkodev` is the marketplace `name` in `marketplace.json` (independent of the GitHub owner, which happens to share the name here).
+`add` takes the GitHub `owner/repo` shorthand (`werkodev/mdhumanviewer`). `mdhumanviewer@mdhumanviewer` is `<plugin-name>@<marketplace-name>`: the plugin `name` in `plugin.json` and the marketplace `name` in `marketplace.json` are both `mdhumanviewer` — a single-plugin catalog named after its plugin. The publishing GitHub account is `werkodev` (the marketplace `owner`).
 
 ### Manually
 
@@ -93,7 +93,7 @@ Once loaded, the skill registers as `/mdhumanviewer:mdhumanviewer` (standard `/<
 
 Point it at a directory of Markdown and ask for the big picture. A real example:
 
-> Give me an overview of the skills in `./LLM-RCA` — what's in there, how they relate, and any contradictions.
+> Give me an overview of the Markdown in `./docs` — what's in there, how the files relate, and any contradictions.
 
 The pipeline is **interactive at S1**: after deterministic discovery, you are shown the files grouped by directory with token estimates and asked which to include — a directory, individual files (by slug or path), a glob (`skills/*`), or `all`. The automated stages run only after you confirm the selection (the selection defines the system boundary the overview describes).
 
@@ -171,10 +171,10 @@ To change the look, **re-author the design once**: run the `mdhv-design-author` 
 
 ## Updating
 
-Pull the latest plugin from the marketplace:
+Pull the latest plugin from the marketplace (the marketplace `name` from `marketplace.json`):
 
 ```
-/plugin marketplace update werkodev
+/plugin marketplace update mdhumanviewer
 ```
 
 ## Tests

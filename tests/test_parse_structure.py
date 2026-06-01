@@ -281,6 +281,77 @@ class GraphTests(unittest.TestCase):
             self.assertEqual([(e["from"], e["to"]) for e in weak], [("a", "deep-c")])
 
 
+class InlineMdRefEdgeTests(unittest.TestCase):
+    """Docs cross-reference each other by backtick filename (`SKILL.md`,
+    `refs/tokens.md`) far more than by [text](link); those inline references
+    are real graph edges (md_ref), not dropped on the floor."""
+
+    def test_inline_md_ref_captured_as_md_ref_link(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            write(os.path.join(tmp, "a.md"), "# A\nSee `SKILL.md` for the flow.\n")
+            write(os.path.join(tmp, "SKILL.md"), "# Skill\n")
+            a = by_slug(run(tmp))["a"]
+            md_refs = [l for l in a["links"] if l["type"] == "md_ref"]
+            self.assertEqual(len(md_refs), 1)
+            self.assertEqual(md_refs[0]["target"], "SKILL.md")
+
+    def test_inline_md_ref_exact_path_is_strong_edge(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            write(os.path.join(tmp, "a.md"),
+                  "# A\nThe contract lives in `refs/tokens.md`.\n")
+            write(os.path.join(tmp, "refs", "tokens.md"), "# Tokens\n")
+            edges = run(tmp)["graph"]["edges"]
+            strong = [e for e in edges if e["strength"] == "strong"]
+            self.assertEqual(len(strong), 1)
+            self.assertEqual((strong[0]["from"], strong[0]["to"]),
+                             ("a", "refs-tokens"))
+            self.assertEqual(strong[0]["reason"], "inline reference")
+
+    def test_inline_md_ref_bare_name_is_weak_edge(self):
+        # A bare `tokens.md` (no dir) cannot resolve by exact path -> a weak,
+        # tentative name match, like the relative-link name match.
+        with tempfile.TemporaryDirectory() as tmp:
+            write(os.path.join(tmp, "a.md"), "# A\nsee `tokens.md`\n")
+            write(os.path.join(tmp, "refs", "tokens.md"), "# Tokens\n")
+            edges = run(tmp)["graph"]["edges"]
+            strong = [e for e in edges if e["strength"] == "strong"]
+            weak = [e for e in edges if e["strength"] == "weak"]
+            self.assertEqual(strong, [])
+            self.assertEqual(len(weak), 1)
+            self.assertEqual((weak[0]["from"], weak[0]["to"]), ("a", "refs-tokens"))
+            self.assertIn("tentative", weak[0]["reason"])
+
+    def test_inline_non_md_code_ref_makes_no_edge(self):
+        # A backtick .py path is a code_ref to a non-node file -> NOT an edge.
+        with tempfile.TemporaryDirectory() as tmp:
+            write(os.path.join(tmp, "a.md"), "# A\nimplemented in `scripts/x.py`\n")
+            write(os.path.join(tmp, "b.md"), "# B\n")
+            out = run(tmp)
+            a = by_slug(out)["a"]
+            self.assertTrue(any(l["type"] == "code_ref" for l in a["links"]))
+            self.assertFalse(any(l["type"] == "md_ref" for l in a["links"]))
+            self.assertEqual(out["graph"]["edges"], [])
+
+    def test_inline_md_ref_self_reference_skipped(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            write(os.path.join(tmp, "a.md"), "# A\nthis very file `a.md` is special\n")
+            write(os.path.join(tmp, "b.md"), "# B\n")
+            edges = run(tmp)["graph"]["edges"]
+            self.assertEqual(edges, [])
+
+    def test_inline_md_ref_does_not_duplicate_a_relative_link_edge(self):
+        # Same pair referenced BOTH as a [link](b.md) and inline `b.md`: one
+        # strong edge, not two.
+        with tempfile.TemporaryDirectory() as tmp:
+            write(os.path.join(tmp, "a.md"),
+                  "# A\n[b](./b.md) and also `b.md`\n")
+            write(os.path.join(tmp, "b.md"), "# B\n")
+            edges = [e for e in run(tmp)["graph"]["edges"]
+                     if (e["from"], e["to"]) == ("a", "b")]
+            self.assertEqual(len(edges), 1)
+            self.assertEqual(edges[0]["strength"], "strong")
+
+
 class GroupTests(unittest.TestCase):
     def test_groups_present_top_level(self):
         """A top-level groups[] array is emitted; meta/files/graph untouched."""

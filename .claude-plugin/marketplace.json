@@ -1,12 +1,12 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-marketplace.json",
-  "name": "werkodev",
+  "name": "mdhumanviewer",
   "owner": {
     "name": "werkodev",
     "email": "hi@werko.dev",
     "url": "https://werko.dev"
   },
-  "description": "Plugins by werkodev — focused, deterministic Claude Code tools that each do one thing well.",
+  "description": "A single-plugin catalog for mdHumanViewer — turn a folder of related Markdown into one self-contained, human-readable HTML overview (a view, not storage).",
   "plugins": [
     {
       "name": "mdhumanviewer",

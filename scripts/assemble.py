@@ -412,21 +412,21 @@ def _node_anchor(node) -> str:
     return f"#{node.get('slug', '')}--file"
 
 
-def select_graph_mode(n: int, s: int) -> str:
+def select_graph_mode(n: int, e: int) -> str:
     """Deterministic render-mode arithmetic.
 
-    N <= 3 OR S == 0           -> 'chips'
-    4 <= N <= 8 AND S > 0      -> 'matrix'
-    N >= 9 AND S > 0           -> 'svg'
+    N <= 3 OR E == 0           -> 'chips'   (too small / no relationships)
+    otherwise                  -> 'diagram' (layered node-link flow)
 
-    The S == 0 short-circuit is checked FIRST, so a 10-node corpus with no
-    strong edges renders chips, not an SVG.
+    ``E`` is the TOTAL edge count (strong + weak). The E == 0 short-circuit is
+    checked alongside N, so a corpus whose files never reference each other
+    renders a flat chip strip rather than an empty canvas. Everything with at
+    least one edge and more than three files renders the layered diagram — its
+    depth then grows with how deeply the corpus is actually connected.
     """
-    if n <= 3 or s == 0:
+    if n <= 3 or e == 0:
         return "chips"
-    if 4 <= n <= 8:
-        return "matrix"
-    return "svg"
+    return "diagram"
 
 
 def _strong_edges(edges):
@@ -457,15 +457,12 @@ def render_graph(structure):
 
     n = len(nodes_sorted)
     strong = _strong_edges(edges)
-    s = len(strong)
-    mode = select_graph_mode(n, s)
+    mode = select_graph_mode(n, len(edges))
 
     if mode == "chips":
         body = _render_chip_strip(nodes_sorted, edges, strong)
-    elif mode == "matrix":
-        body = _render_adjacency_matrix(nodes_sorted, edges)
     else:
-        body = _render_svg(nodes_sorted, edges, strong)
+        body = _render_flow(nodes_sorted, edges, strong)
 
     return (
         f'<div class="mdhv-graph" id="mdhv-graph" data-mode="{mode}">'
@@ -512,156 +509,242 @@ def _render_chip_strip(nodes, edges, strong):
     )
 
 
-def _render_adjacency_matrix(nodes, edges):
-    # Build a lookup of edge strength keyed by (from, to).
-    cell = {}
-    for e in edges:
-        key = (e.get("from"), e.get("to"))
-        # strong wins over weak if both somehow present
-        if cell.get(key) != "strong":
-            cell[key] = e.get("strength")
-
-    header_cells = ['<th class="mdhv-matrix-corner"></th>']
-    for node in nodes:
-        header_cells.append(
-            f'<th><a class="mdhv-node" href="{esc(_node_anchor(node))}">'
-            f'{esc(node.get("title") or node.get("slug"))}</a></th>'
-        )
-    rows = ['<tr>' + "".join(header_cells) + '</tr>']
-
-    for src in nodes:
-        cells = [
-            f'<th><a class="mdhv-node" href="{esc(_node_anchor(src))}">'
-            f'{esc(src.get("title") or src.get("slug"))}</a></th>'
-        ]
-        for dst in nodes:
-            if src.get("slug") == dst.get("slug"):
-                cells.append('<td class="mdhv-matrix-self"></td>')
-                continue
-            strength = cell.get((src.get("slug"), dst.get("slug")))
-            if strength == "strong":
-                cells.append('<td class="mdhv-edge mdhv-edge-strong" data-edge="strong">●</td>')
-            elif strength == "weak":
-                cells.append('<td class="mdhv-edge mdhv-edge-weak" data-edge="weak">○</td>')
-            else:
-                cells.append('<td></td>')
-        rows.append('<tr>' + "".join(cells) + '</tr>')
-
-    return (
-        '<table class="mdhv-matrix"><tbody>' + "".join(rows) + '</tbody></table>'
-        + _render_graph_key()
-        + '<p class="mdhv-graph-caption">'
-        'Each row references the columns marked below — '
-        'filled = strong cross-reference, hollow = weak / name-match.'
-        '</p>'
-    )
+def _truncate(s: str, n: int) -> str:
+    """Trim an SVG label to ``n`` chars with an ellipsis (full text in <title>)."""
+    s = s or ""
+    return s if len(s) <= n else s[: max(1, n - 1)].rstrip() + "…"
 
 
-def _render_svg(nodes, edges, strong):
-    """Deterministic-layout SVG node-link diagram (N >= 9, S > 0).
+_LEGEND_NAME_RE = re.compile(r":\s*'[^']*'")
 
-    Layout is purely a function of the sorted node order, so the same
-    structure.json renders to byte-identical SVG across runs.
+
+def _legend_label(reason: str) -> str:
+    """Collapse per-name edge reasons to a bounded, generic legend label.
+
+    Weak name-match reasons carry the specific matched name
+    (``name match: 'session' (tentative)``); stripping the quoted name keeps
+    the legend to a handful of distinct rationales (``name match (tentative)``)
+    instead of one row per matched name, so it stays scannable on a large
+    corpus. Structural reasons (``direct relative link``, ``inline reference``)
+    have no quoted name and pass through unchanged.
     """
-    import math
+    return _LEGEND_NAME_RE.sub("", reason or "").strip()
 
-    # hub = node with >= 2 INCOMING strong edges (weak never counts).
+
+# Layout constants for the layered flow diagram. Pure geometry; the same
+# structure.json renders byte-identically because every coordinate is an
+# integer/fixed-factor function of the deterministic node order.
+_BOX_W, _BOX_H = 184, 48
+_H_GAP, _V_GAP = 30, 64
+_MARGIN = 24
+
+
+def _layer_assignment(connected, edges):
+    """Cycle-safe longest-path layering. Returns ``{slug: layer}``.
+
+    Layers each node by the longest path from a source (a node nothing
+    references) along a DAG built from the edges with back-edges removed.
+    DEPTH (``max(layer) + 1``) therefore grows with how deeply the corpus is
+    connected — a reference chain is deep, a flat hub-and-spoke is shallow.
+    Pure function of the sorted node/edge order: iterative DFS (no recursion
+    limit, no iteration-order dependence), sorted adjacency, sorted roots.
+    """
+    slugs = [n.get("slug") for n in connected]
+    slug_set = set(slugs)
+
+    adj = {s: [] for s in slugs}
+    for e in edges:
+        a, b = e.get("from"), e.get("to")
+        if a in slug_set and b in slug_set and a != b:
+            adj[a].append(b)
+    adj = {s: sorted(set(v)) for s, v in adj.items()}
+
+    # Iterative DFS dropping back-edges (a target currently on the stack) to
+    # leave a DAG in ``forward``. Cross/forward edges to finished nodes stay.
+    state = {s: 0 for s in slugs}          # 0 unseen, 1 on-stack, 2 done
+    forward = {s: [] for s in slugs}
+    for root in sorted(slugs):
+        if state[root] != 0:
+            continue
+        stack = [[root, 0]]
+        state[root] = 1
+        while stack:
+            u, i = stack[-1]
+            if i < len(adj[u]):
+                stack[-1][1] += 1
+                v = adj[u][i]
+                if state[v] == 1:
+                    continue               # back-edge -> not in the DAG
+                forward[u].append(v)
+                if state[v] == 0:
+                    state[v] = 1
+                    stack.append([v, 0])
+            else:
+                state[u] = 2
+                stack.pop()
+
+    # Longest-path layering on the DAG (Kahn over forward edges).
+    indeg = {s: 0 for s in slugs}
+    for u in slugs:
+        for v in forward[u]:
+            indeg[v] += 1
+    layer = {s: 0 for s in slugs}
+    queue = sorted(s for s in slugs if indeg[s] == 0)
+    while queue:
+        u = queue.pop(0)
+        for v in forward[u]:
+            if layer[u] + 1 > layer[v]:
+                layer[v] = layer[u] + 1
+            indeg[v] -= 1
+            if indeg[v] == 0:
+                queue.append(v)
+                queue.sort()
+    return layer
+
+
+def _order_layers(connected, edges, layer):
+    """Order nodes within each layer to reduce crossings (deterministic).
+
+    Start each layer in slug order, then run a fixed number of barycenter
+    sweeps (down then up) keyed on the mean index of a node's neighbours in
+    the adjacent layer, with a slug tie-break. No randomness, fixed sweep
+    count -> identical output every run.
+    """
+    by_layer: dict = {}
+    for n in connected:
+        by_layer.setdefault(layer[n.get("slug")], []).append(n)
+    depth = max(by_layer) + 1 if by_layer else 0
+    layers = [sorted(by_layer.get(L, []), key=lambda n: n.get("slug", ""))
+              for L in range(depth)]
+
+    cslugs = {n.get("slug") for n in connected}
+    nbr: dict = {s: set() for s in cslugs}
+    for e in edges:
+        a, b = e.get("from"), e.get("to")
+        if a in cslugs and b in cslugs and a != b:
+            nbr[a].add(b)
+            nbr[b].add(a)
+
+    pos = {}
+    for L in range(depth):
+        for i, n in enumerate(layers[L]):
+            pos[n.get("slug")] = i
+
+    def bary(n, adjacent):
+        idx = [pos[m] for m in nbr[n.get("slug")] if layer.get(m) == adjacent]
+        return sum(idx) / len(idx) if idx else pos[n.get("slug")]
+
+    for _ in range(3):
+        for L in range(1, depth):
+            layers[L].sort(key=lambda n: (bary(n, L - 1), n.get("slug", "")))
+            for i, n in enumerate(layers[L]):
+                pos[n.get("slug")] = i
+        for L in range(depth - 2, -1, -1):
+            layers[L].sort(key=lambda n: (bary(n, L + 1), n.get("slug", "")))
+            for i, n in enumerate(layers[L]):
+                pos[n.get("slug")] = i
+    return layers
+
+
+def _render_flow(nodes, edges, strong):
+    """Deterministic layered node-link flow diagram.
+
+    Boxed nodes (title + file-path sub-label) on connectivity-derived layers,
+    arrowed cubic-bezier edges (solid = strong, dashed = weak), legend, and an
+    isolated-node strip — the same structure.json renders byte-identically.
+    """
     hubs = compute_hubs(nodes, strong)
 
-    # Isolated nodes (no edges at all, strong or weak) are grouped separately.
     connected_slugs = set()
     for e in edges:
         connected_slugs.add(e.get("from"))
         connected_slugs.add(e.get("to"))
-    isolated = [node for node in nodes if node.get("slug") not in connected_slugs]
-    connected = [node for node in nodes if node.get("slug") in connected_slugs]
+    isolated = [n for n in nodes if n.get("slug") not in connected_slugs]
+    connected = [n for n in nodes if n.get("slug") in connected_slugs]
 
-    width = 800
-    main_h = 600
-    cx, cy = width / 2.0, main_h / 2.0
-    radius = 240.0
+    layer = _layer_assignment(connected, edges)
+    layers = _order_layers(connected, edges, layer)
+    depth = len(layers)
 
-    # Position connected nodes on a circle, in deterministic sorted order.
-    pos = {}
-    count = max(1, len(connected))
-    for i, node in enumerate(connected):
-        angle = 2.0 * math.pi * i / count - math.pi / 2.0
-        x = cx + radius * math.cos(angle)
-        y = cy + radius * math.sin(angle)
-        pos[node.get("slug")] = (round(x, 3), round(y, 3))
+    # Coordinates: rows top-to-bottom by layer, each row centred in the canvas.
+    row_w = [len(L) * _BOX_W + max(0, len(L) - 1) * _H_GAP for L in layers]
+    canvas_w = (max(row_w) if row_w else _BOX_W) + 2 * _MARGIN
+    canvas_h = 2 * _MARGIN + depth * _BOX_H + max(0, depth - 1) * _V_GAP
+    xy = {}
+    for L in range(depth):
+        x0 = (canvas_w - row_w[L]) / 2.0
+        y = _MARGIN + L * (_BOX_H + _V_GAP)
+        for i, n in enumerate(layers[L]):
+            xy[n.get("slug")] = (round(x0 + i * (_BOX_W + _H_GAP), 2), round(y, 2))
 
-    # Collapse bidirectional strong/weak pairs into one line. A pair (A->B and
-    # B->A) is drawn ONCE with arrowheads at both ends. Key edges by an
-    # order-independent frozenset of endpoints, but keep direction info.
-    def edge_record(e):
-        return {
-            "from": e.get("from"),
-            "to": e.get("to"),
-            "strength": e.get("strength"),
-            "reason": e.get("reason", ""),
-        }
-
-    by_pair: dict = {}
-    for e in edges:
-        rec = edge_record(e)
-        a, b = rec["from"], rec["to"]
-        if a not in pos or b not in pos:
+    # Edges: one path per directed edge (correct arrow direction), routed by
+    # the relative layer of source and target. Deterministic (from, to) order.
+    edge_svgs = []
+    legend_reasons: dict = {}
+    for e in sorted(edges, key=lambda e: (e.get("from", ""), e.get("to", ""))):
+        a, b = e.get("from"), e.get("to")
+        if a == b or a not in xy or b not in xy:
             continue
-        key = frozenset((a, b))
-        by_pair.setdefault(key, []).append(rec)
-
-    # Build line elements + collect legend reasons. Iterate pairs in a
-    # deterministic order: sort by the sorted-tuple of their endpoints.
-    def pair_sort_key(item):
-        key = item[0]
-        return tuple(sorted(key))
-
-    line_svgs = []
-    legend_reasons: dict = {}  # reason -> strength of first sighting (for legend)
-    for key, recs in sorted(by_pair.items(), key=pair_sort_key):
-        endpoints = sorted(key) if len(key) == 2 else list(key) * 2
-        a, b = endpoints[0], endpoints[1]
-        x1, y1 = pos[a]
-        x2, y2 = pos[b]
-        # bidirectional iff both directions present
-        dirs = {(r["from"], r["to"]) for r in recs}
-        bidirectional = (a, b) in dirs and (b, a) in dirs
-        # strong if any rec on this pair is strong
-        is_strong = any(r["strength"] == "strong" for r in recs)
-        stroke_class = "mdhv-edge-strong" if is_strong else "mdhv-edge-weak"
+        ax, ay = xy[a]
+        bx, by = xy[b]
+        la, lb = layer[a], layer[b]
+        if lb > la:                                   # target below
+            sx, sy, tx, ty = ax + _BOX_W / 2, ay + _BOX_H, bx + _BOX_W / 2, by
+            my = sy + (ty - sy) * 0.5
+            c1x, c1y, c2x, c2y = sx, my, tx, my
+        elif lb < la:                                 # target above
+            sx, sy, tx, ty = ax + _BOX_W / 2, ay, bx + _BOX_W / 2, by + _BOX_H
+            my = sy + (ty - sy) * 0.5
+            c1x, c1y, c2x, c2y = sx, my, tx, my
+        else:                                         # same layer -> side arc
+            # Defensive: longest-path layering never assigns the two ends of an
+            # edge to the same layer (a kept edge forces layer[to] > layer[from];
+            # a dropped back-edge points at an ancestor, layer[to] < layer[from]).
+            # Kept so a future layering change can't reach an undefined path.
+            if bx >= ax:
+                sx, sy, tx, ty = ax + _BOX_W, ay + _BOX_H / 2, bx, by + _BOX_H / 2
+            else:
+                sx, sy, tx, ty = ax, ay + _BOX_H / 2, bx + _BOX_W, by + _BOX_H / 2
+            arc = sy - 34
+            c1x, c1y, c2x, c2y = (sx + tx) / 2, arc, (sx + tx) / 2, arc
+        is_strong = e.get("strength") == "strong"
+        cls = "mdhv-edge-strong" if is_strong else "mdhv-edge-weak"
         dash = "" if is_strong else ' stroke-dasharray="6 4"'
-        opacity = "" if is_strong else ' opacity="0.4"'
-        marker_end = ' marker-end="url(#mdhv-arrow)"'
-        marker_start = ' marker-start="url(#mdhv-arrow)"' if bidirectional else ""
-        line_svgs.append(
-            f'<line class="mdhv-edge {stroke_class}" '
-            f'x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}"'
-            f'{dash}{opacity}{marker_start}{marker_end} />'
+        op = "" if is_strong else ' opacity="0.45"'
+        d = (f'M{round(sx, 2)},{round(sy, 2)} '
+             f'C{round(c1x, 2)},{round(c1y, 2)} '
+             f'{round(c2x, 2)},{round(c2y, 2)} '
+             f'{round(tx, 2)},{round(ty, 2)}')
+        edge_svgs.append(
+            f'<path class="mdhv-edge {cls}" d="{d}"{dash}{op} '
+            f'marker-end="url(#mdhv-arrow)" />'
         )
-        # identical reasons collapse to a SINGLE legend entry
-        for r in recs:
-            reason = r.get("reason", "")
-            if reason and reason not in legend_reasons:
-                legend_reasons[reason] = r["strength"]
+        reason = _legend_label(e.get("reason", ""))
+        if reason and reason not in legend_reasons:
+            legend_reasons[reason] = e.get("strength")
 
-    # Node circles + labels (connected nodes), deterministic order.
+    # Boxed nodes: title + file-path sub-label; hubs are filled (data-hub).
     node_svgs = []
-    for node in connected:
-        slug = node.get("slug")
-        x, y = pos[slug]
+    for n in connected:
+        slug = n.get("slug")
+        x, y = xy[slug]
         is_hub = slug in hubs
-        r = 14 if is_hub else 9
+        title = n.get("title") or slug
+        path = n.get("file_path") or ""
         label_class = "mdhv-node-label-hub" if is_hub else "mdhv-node-label"
+        cx = round(x + _BOX_W / 2, 2)
         node_svgs.append(
-            f'<a class="mdhv-node" href="{esc(_node_anchor(node))}" '
+            f'<a class="mdhv-node" href="{esc(_node_anchor(n))}" '
             f'data-hub="{"true" if is_hub else "false"}">'
-            f'<circle cx="{x}" cy="{y}" r="{r}" />'
-            f'<text class="{label_class}" x="{x}" y="{y - r - 4}">'
-            f'{esc(node.get("title") or slug)}</text>'
+            f'<title>{esc(title)} — {esc(path)}</title>'
+            f'<rect x="{x}" y="{y}" width="{_BOX_W}" height="{_BOX_H}" rx="8" />'
+            f'<text class="{label_class}" x="{cx}" y="{round(y + _BOX_H / 2 - 2, 2)}">'
+            f'{esc(_truncate(title, 24))}</text>'
+            f'<text class="mdhv-node-sub" x="{cx}" y="{round(y + _BOX_H / 2 + 14, 2)}">'
+            f'{esc(_truncate(path, 28))}</text>'
             f'</a>'
         )
 
-    # Legend: one entry per distinct edge reason.
     legend_items = []
     for reason in sorted(legend_reasons):
         strength = legend_reasons[reason]
@@ -673,13 +756,12 @@ def _render_svg(nodes, edges, strong):
         if legend_items else ''
     )
 
-    # Isolated-node strip (grouped separately, never inside the main canvas).
     isolated_html = ""
     if isolated:
         iso_chips = "".join(
-            f'<a class="mdhv-node" href="{esc(_node_anchor(node))}">'
-            f'{esc(node.get("title") or node.get("slug"))}</a>'
-            for node in isolated
+            f'<a class="mdhv-node" href="{esc(_node_anchor(n))}">'
+            f'{esc(n.get("title") or n.get("slug"))}</a>'
+            for n in isolated
         )
         isolated_html = (
             '<div class="mdhv-graph-isolated">'
@@ -688,23 +770,21 @@ def _render_svg(nodes, edges, strong):
             '</div>'
         )
 
-    # Plain-English reading of the diagram + the computed counts. The same
-    # sentence is the <desc> (G2 a11y) and the visible caption (G1). FIXED
-    # deterministic strings; only the counts vary with the corpus.
     counts = (
         f'{len(nodes)} files · {len(strong)} strong cross-references · '
         f'{len(hubs)} hub(s) · {len(isolated)} isolated'
     )
     reading = (
-        'Arrows point from a file to the files it references; '
-        'filled nodes are hubs (referenced by >=2 others). '
+        'Files are layered top-to-bottom from referrer to referenced; arrows '
+        'point to the file being referenced, and filled nodes are hubs '
+        '(referenced by >=2 others). '
     )
     desc = reading + counts
     caption = reading + counts
 
     svg = (
-        f'<svg class="mdhv-graph-svg" viewBox="0 0 {width} {main_h}" '
-        f'width="{width}" height="{main_h}" role="img" '
+        f'<svg class="mdhv-graph-svg" viewBox="0 0 {int(canvas_w)} {int(canvas_h)}" '
+        f'width="{int(canvas_w)}" height="{int(canvas_h)}" role="img" '
         f'aria-labelledby="mdhv-graph-title mdhv-graph-desc">'
         '<title id="mdhv-graph-title">Cross-file reference graph</title>'
         f'<desc id="mdhv-graph-desc">{esc(desc)}</desc>'
@@ -714,12 +794,10 @@ def _render_svg(nodes, edges, strong):
         '<path d="M0,0 L10,5 L0,10 z" />'
         '</marker>'
         '</defs>'
-        + "".join(line_svgs)
+        + "".join(edge_svgs)
         + "".join(node_svgs)
         + '</svg>'
     )
-    # Fixed conventions key (G1): HTML/CSS swatches, NOT inline <svg><line> —
-    # so document.count("<line") is unaffected. FIXED text, no data dependence.
     key_html = _render_graph_key()
     return (
         svg

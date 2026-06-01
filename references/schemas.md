@@ -115,9 +115,10 @@ Field notes:
   `outbound_links`.** Each
   entry is `{ raw, target, type, resolved_slug? }`:
   - `type` is one of:
-    - `relative_md`  — link to another `.md` inside the repo (candidate graph edge);
+    - `relative_md`  — `[text](file.md)` link to another `.md` inside the repo (candidate graph edge);
+    - `md_ref`       — inline-code reference to a markdown file (`` `SKILL.md` ``, `` `refs/tokens.md` ``); also a candidate graph edge, since docs cite each other by backtick filename far more than by a link;
     - `external_url` — http(s) link outside the repo;
-    - `code_ref`     — reference to a code file/path (not an edge, but surfaced);
+    - `code_ref`     — reference to a non-md code file/path (`` `scripts/x.py` ``) — surfaced, but never a node edge (it points outside the `.md` node set);
     - `other`        — anything else (images, bare anchors, mailto, ...).
   - `target` for `relative_md` is normalized relative to **ROOT** (the discovery
     root), so it can be matched against other files' `file_path` (also relative
@@ -127,10 +128,16 @@ Field notes:
     the target is outside the selection.
 - `graph.nodes[]`: one per file (`slug`, `title`, `file_path`).
 - `graph.edges[]`: `{ from, to, strength, reason }`.
-  - **strong** = a `relative_md` link whose ROOT-normalized `target` matches
-    another node's `file_path`. Strong edges (and each link's `resolved_slug`)
-    are a pure deterministic join computed in S1.
-  - **weak** = a name match between files (marked tentative).
+  - **strong** = a `relative_md` link (reason `direct relative link`) **or** an
+    inline `md_ref` whose target matches another node's `file_path` by exact
+    ROOT-relative path (reason `inline reference`). Strong edges from
+    `relative_md` also fill that link's `resolved_slug`. A pure deterministic
+    join computed in S1.
+  - **weak** = a bare-name match between files, marked tentative — from a
+    `relative_md` link (reason `name match: '<name>'`) or an `md_ref` that
+    resolves only by basename (reason `inline name match: '<name>'`).
+  - Each `(from, to)` pair yields at most one edge; a stronger derivation wins,
+    so the same pair cited both ways is a single strong edge.
 
 The set `{ "<slug>--<anchor>" for every heading in every files[].headings[] }`
 is the canonical **emitted page id space**. Gates 1 and 2 in `assemble.py`
