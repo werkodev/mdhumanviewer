@@ -429,6 +429,43 @@ must have a matching chrome id:
 #mdhv-top, #mdhv-toc, #mdhv-graph, #mdhv-findings, #mdhv-files
 ```
 
+**Gate 1 is HTML-aware.** The anchor-resolution gate resolves the `href` of
+**real `<a>` elements only**, extracted by `gates.hrefs_in` (an `HTMLParser`
+subclass), not by a raw scan of the bytes. An `href="#..."` quoted **inside a
+`<code>` block** (it is character data, not an attribute) or shown as an
+**escaped `&lt;a href="#..."&gt;`** example (it is text, not a tag) is
+documentation, **not a link**, and is therefore **not checked** — even when it
+sits inside `<pre>`. Only the `#`-prefixed hrefs of genuine `<a>` start tags are
+in scope; external/relative hrefs (`https://…`, `page.html#frag`) are out of
+scope exactly as before (not `#`-prefixed). Attribute values are
+HTMLParser-decoded, so `href="#a&amp;b"` resolves as `#a&b`. A genuinely broken
+real `<a href="#typo">` (even nested in `<pre>`) still fails gate 1. This lets a
+fragment safely *show* anchor syntax in a code sample without false-failing,
+while still rejecting any dangling live link.
+
+**Reconcile (S3.5) runs the same anchor check, detect-only.** `reconcile.py`
+runs the **identical** gate-1 check `assemble.py` runs — it resolves
+`gates.hrefs_in(fragment)` against the same `structure.json` id space
+(`gates.structure_heading_ids`) and the same `ALLOWED_CHROME_ANCHORS` chrome
+set, computed once for the session and passed into `reconcile_file`. It is
+**detect-only**: a genuinely dangling in-page anchor (not chrome, target absent
+from the id space) is escalated as a gap, but the fragment is **never mutated**
+(no `<a>` unwrap). The reconcile report therefore carries an **`anchors` list
+under both `auto_closed` and `genuine_gaps`**, alongside the existing `coverage`
+and `contracts` lists:
+
+```json
+{
+  "auto_closed":  { "coverage": [], "contracts": [], "anchors": [] },
+  "genuine_gaps": { "coverage": [], "contracts": [], "anchors": [] }
+}
+```
+
+`main()` exits non-zero if **any** `genuine_gaps` list — `coverage`,
+`contracts`, **or** `anchors` — is non-empty, routing a genuinely broken anchor
+to a bounded renderer/verifier re-invoke. Because S3.5 detects exactly what S4
+would, a clean reconcile **guarantees S4's anchor gate passes first try**.
+
 ### `normalize(s)` (gate 3)
 
 The gate-3 contract normalizer is **also** single-sourced in

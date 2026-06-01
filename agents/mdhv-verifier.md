@@ -89,7 +89,11 @@ Scrutinize for these specific distortions and correct each one:
 - A contract may legitimately span multiple `.mdhv-contract` elements within this
   one fragment; the concatenation must still carry the full contract text.
 - If a contract was reworded, collapsed, or dropped, restore the exact wording
-  inside an un-collapsed `.mdhv-contract` callout.
+  inside an un-collapsed `.mdhv-contract` callout. If a stored contract fails the
+  contract gate because it **merged or summarized multiple source spans** into one
+  long block, the fix is to **split it into tight per-span contracts** — each a
+  short verbatim span from one location — not to hand-tune one long paraphrase. Do
+  not reword across a negation (`not`/`never`/`unless`).
 
 ## Coverage check (deterministic)
 
@@ -135,15 +139,18 @@ markdown syntax — see `normalize` in `references/schemas.md`), so you do not n
 to match the source byte-for-byte; you need the same words, in order. For each
 `analysis.contracts[].text`:
 
-1. **Source faithfulness.** Confirm the contract's word sequence is a contiguous
-   run of the source's word sequence (read `SOURCE_PATH`). A contract lifted from
-   a table row or list legitimately reads like `col1 ... col2` — that is fine, the
-   pipes/dashes are dropped on both sides. What is NOT fine is a word the source
-   does not have, a dropped/changed word, or a reordering. If the stored contract
-   has drifted from the source, **correct `analysis.contracts[].text`** (via `Edit`
-   on `ANALYSIS_PATH`) to the faithful source wording — split one entry into
-   several if it spanned separate source spans. Never weaken a real contract to
-   make the gate pass.
+1. **Source faithfulness.** Confirm the contract's words appear in the source
+   **in order** (read `SOURCE_PATH`) — as a contiguous run OR a tight bounded
+   subsequence. The gate may skip a few connective/punctuation words, but the
+   matched span must stay tight, so do not rely on a loose match. A contract
+   lifted from a table row or list legitimately reads like `col1 ... col2` — that
+   is fine, the pipes/dashes are dropped on both sides; it keeps the salient cells
+   in source order and may drop intervening cell words. What is NOT fine is a word
+   the source does not have, a changed word, or a reordering. If the stored
+   contract has drifted from the source, **correct `analysis.contracts[].text`**
+   (via `Edit` on `ANALYSIS_PATH`) to the faithful source wording — split one
+   entry into several if it spanned separate source spans. Never weaken a real
+   contract to make the gate pass.
 2. **Present in the fragment.** Confirm the same words appear inside a
    `.mdhv-contract` callout (concatenated across that file's `.mdhv-contract`
    elements if the contract spans several). If missing/reworded, fix the callout

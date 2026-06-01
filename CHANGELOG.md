@@ -8,6 +8,38 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 
 - _Nothing yet._
 
+## [0.2.1] - 2026-06-01
+
+### Fixed
+
+- **Gate 1 (dangling-anchor) no longer false-fails on self-referential corpora.**
+  `hrefs_in()` in `scripts/gates.py` is now **HTML-aware** (an `HTMLParser`
+  subclass that collects the `href` of real `<a>` start tags only): a `#`-anchor
+  quoted inside a `<code>` block is character data, and an escaped
+  `&lt;a href="#x"&gt;` is text — **neither** is flagged, while a real
+  `<a href="#typo">` (even inside `<pre>`) still is. So a corpus that talks about
+  its own anchor markup (the plugin's own docs) no longer trips gate 1.
+  `assemble.py` now imports `hrefs_in` from `gates` (its old raw-regex
+  `_HREF_HASH_RE` is gone); the gate-1 decision logic is otherwise unchanged.
+- **S3.5 reconcile now runs the same gate-1 check (detect-only parity).**
+  `reconcile.py` imports `hrefs_in` + `structure_heading_ids` from `gates` and
+  scans for genuinely dangling in-page anchors, appending them to a new
+  `genuine_gaps.anchors` key **without mutating the fragment** (no `<a>` unwrap).
+  The report shape is now
+  `{auto_closed:{coverage,contracts,anchors}, genuine_gaps:{coverage,contracts,anchors}}`,
+  and `main()` exits non-zero if **any** `genuine_gaps` list is non-empty. S3.5
+  now guarantees S4 passes first try, ending the S3.5↔S4 verifier re-invoke loop
+  that left self-runs unable to assemble.
+
+### Documentation
+
+- **Renderer/verifier prompts corrected to state the gate's real contract rule.**
+  The `mdhv-renderer` / `mdhv-verifier` prompts now describe gate 3 as
+  **contiguous-or-tight-subsequence** (an order-preserving subsequence within a
+  bounded window, not contiguous-only), matching `gates.contract_present()`, and
+  instruct agents to keep contracts **tight** — no merging or summarizing across
+  contracts.
+
 ## [0.2.0] - 2026-06-01
 
 ### Fixed
